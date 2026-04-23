@@ -1,0 +1,7 @@
+torch>=2.0.0
+transformers>=4.30.0
+datasets>=2.14.0
+nltk>=3.8.0
+rouge-score>=0.1.2
+matplotlib>=3.7.0
+numpy>=1.24.0
