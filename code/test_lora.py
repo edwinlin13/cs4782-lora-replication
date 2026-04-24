@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from lora import LoRALinear, LoRAQVWrapper, inject_lora
+from lora import LoRALinear, LoRAQVWrapper, inject_lora, merge_lora
 
 
 def test_lora_linear_output_shape():
@@ -91,6 +91,42 @@ def test_inject_lora_correct_num_wrappers():
     assert wrapper_count == 12, f"Expected 12 LoRAQVWrapper modules, got {wrapper_count}"
 
 
+def test_merge_lora_produces_same_output():
+    """After merging, the model without wrappers should produce the same output."""
+    from transformers import GPT2LMHeadModel
+    model = GPT2LMHeadModel.from_pretrained("gpt2")
+    inject_lora(model, rank=4, alpha=4)
+
+    # simulate some training by putting non-zero values in B
+    with torch.no_grad():
+        for module in model.modules():
+            if isinstance(module, LoRAQVWrapper):
+                module.lora_q_B.normal_(0, 0.01)
+                module.lora_v_B.normal_(0, 0.01)
+
+    x = torch.randint(0, 50257, (1, 20))
+    with torch.no_grad():
+        out_before = model(x).logits
+
+    merge_lora(model)
+
+    with torch.no_grad():
+        out_after = model(x).logits
+
+    assert torch.allclose(out_before, out_after, atol=1e-4), \
+        f"Max diff: {(out_before - out_after).abs().max().item()}"
+
+
+def test_merge_lora_removes_wrappers():
+    """After merging, no LoRAQVWrapper modules should remain."""
+    from transformers import GPT2LMHeadModel
+    model = GPT2LMHeadModel.from_pretrained("gpt2")
+    inject_lora(model, rank=4, alpha=4)
+    merge_lora(model)
+    wrapper_count = sum(1 for _, m in model.named_modules() if isinstance(m, LoRAQVWrapper))
+    assert wrapper_count == 0, f"Expected 0 wrappers after merge, got {wrapper_count}"
+
+
 if __name__ == "__main__":
     test_lora_linear_output_shape()
     test_lora_linear_initial_output_matches_original()
@@ -104,3 +140,7 @@ if __name__ == "__main__":
     test_inject_lora_freezes_base_params()
     test_inject_lora_correct_num_wrappers()
     print("All injection tests passed!")
+    print("Running merge tests...")
+    test_merge_lora_produces_same_output()
+    test_merge_lora_removes_wrappers()
+    print("All merge tests passed!")

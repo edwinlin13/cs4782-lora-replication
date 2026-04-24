@@ -137,3 +137,51 @@ def inject_lora(model, rank, alpha, target_modules=None):
             wrapper = LoRALinear(module, rank, alpha)
 
         setattr(parent, attr_name, wrapper)
+
+
+def merge_lora(model):
+    """Fold LoRA weights back into the original layers and remove wrappers.
+
+    After merging the model produces identical output but without any LoRA
+    modules, so theres no extra inference cost.
+    """
+    # TODO: maybe add option to keep wrappers around for further training?
+    replacements = []
+    for name, module in model.named_modules():
+        if isinstance(module, (LoRAQVWrapper, LoRALinear)):
+            replacements.append((name, module))
+
+    for name, module in replacements:
+        parts = name.split(".")
+        parent = model
+        for part in parts[:-1]:
+            parent = getattr(parent, part)
+        attr_name = parts[-1]
+
+        if isinstance(module, LoRAQVWrapper):
+            c_attn = module.original_c_attn
+            d_head = c_attn.nf // 3
+
+            with torch.no_grad():
+                # merge Q lora: delta_W = B @ A, shape (d_head, d_in)
+                delta_q = (module.lora_q_B @ module.lora_q_A) * module.scaling
+                # Conv1D weight is (d_in, d_out), so we transpose and add to Q columns
+                c_attn.weight[:, :d_head] += delta_q.T
+
+                # same thing for V
+                delta_v = (module.lora_v_B @ module.lora_v_A) * module.scaling
+                c_attn.weight[:, 2 * d_head:] += delta_v.T
+
+            setattr(parent, attr_name, c_attn)
+
+        elif isinstance(module, LoRALinear):
+            original = module.original_layer
+            with torch.no_grad():
+                delta = (module.lora_B @ module.lora_A) * module.scaling
+                if module.is_conv1d:
+                    # conv1d weight is transposed compared to linear
+                    original.weight += delta.T
+                else:
+                    original.weight += delta
+
+            setattr(parent, attr_name, original)
