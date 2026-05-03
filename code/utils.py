@@ -39,8 +39,10 @@ def load_checkpoint(model, optimizer, path, device="cpu"):
 def save_metrics(metrics, path):
     """Save metrics dict as JSON."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
+    temp_path = f"{path}.tmp"
+    with open(temp_path, "w") as f:
         json.dump(metrics, f, indent=2)
+    os.replace(temp_path, path)
 
 
 class TrainingLogger:

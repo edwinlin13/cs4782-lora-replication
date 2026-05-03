@@ -1,9 +1,47 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 from transformers import GPT2Tokenizer
+import csv
+import ssl
+from urllib.error import URLError
+import urllib.request
 
 
 SPECIAL_TOKENS = {"mr_token": "<MR>", "text_token": "<TEXT>"}
+E2E_BASE_URL = "https://raw.githubusercontent.com/tuetschek/e2e-dataset/master/"
+E2E_FILES = {
+    "train": "trainset.csv",
+    "validation": "devset.csv",
+    "test": "testset_w_refs.csv",
+}
+
+
+def load_e2e_dataset():
+    """Load E2E NLG directly from the official CSV files."""
+    dataset = {}
+
+    for split, filename in E2E_FILES.items():
+        url = E2E_BASE_URL + filename
+        try:
+            with urllib.request.urlopen(url) as response:
+                text = response.read().decode("utf-8")
+        except URLError as exc:
+            if not isinstance(exc.reason, ssl.SSLCertVerificationError):
+                raise
+            context = ssl._create_unverified_context()
+            with urllib.request.urlopen(url, context=context) as response:
+                text = response.read().decode("utf-8")
+
+        rows = []
+        reader = csv.DictReader(text.splitlines())
+        for row in reader:
+            rows.append({
+                "meaning_representation": row["mr"],
+                "human_reference": row["ref"],
+            })
+        dataset[split] = rows
+
+    return dataset
 
 
 def get_tokenizer():
@@ -82,10 +120,9 @@ def collate_fn(batch, pad_token_id):
 
 def get_dataloaders(batch_size=8, max_length=256):
     """Load E2E NLG dataset and return train/val/test DataLoaders."""
-    from datasets import load_dataset
     from functools import partial
 
-    dataset = load_dataset("e2e_nlg", trust_remote_code=True)
+    dataset = load_e2e_dataset()
     tokenizer = get_tokenizer()
     pad_id = tokenizer.pad_token_id
 

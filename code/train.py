@@ -6,14 +6,30 @@ import nltk
 from rouge_score import rouge_scorer
 from utils import TrainingLogger, save_checkpoint, count_parameters, save_metrics
 
+try:
+    from tqdm.auto import tqdm
+except ImportError:
+    tqdm = None
 
-def train_one_epoch(model, dataloader, optimizer, scheduler, device):
+
+def _progress(iterable, **kwargs):
+    if tqdm is None:
+        return iterable
+    return tqdm(iterable, **kwargs)
+
+
+def train_one_epoch(model, dataloader, optimizer, scheduler, device, epoch=None, num_epochs=None):
     """Train for one epoch. Returns average loss."""
     model.train()
     total_loss = 0
     num_batches = 0
 
-    for batch in dataloader:
+    desc = "Training"
+    if epoch is not None and num_epochs is not None:
+        desc = f"Training {epoch}/{num_epochs}"
+
+    progress = _progress(dataloader, desc=desc, leave=False)
+    for batch in progress:
         input_ids = batch["input_ids"].to(device)
         attention_mask = batch["attention_mask"].to(device)
         labels = batch["labels"].to(device)
@@ -29,18 +45,31 @@ def train_one_epoch(model, dataloader, optimizer, scheduler, device):
 
         total_loss += loss.item()
         num_batches += 1
+        if tqdm is not None:
+            progress.set_postfix(loss=f"{total_loss / num_batches:.4f}")
+        if num_batches == 1 or num_batches % 100 == 0 or num_batches == len(dataloader):
+            print(
+                f"    {desc}: batch {num_batches}/{len(dataloader)} "
+                f"| avg loss {total_loss / num_batches:.4f}",
+                flush=True,
+            )
 
     return total_loss / num_batches
 
 
 @torch.no_grad()
-def validate(model, dataloader, device):
+def validate(model, dataloader, device, epoch=None, num_epochs=None):
     """Compute average loss on a validation/test set."""
     model.eval()
     total_loss = 0
     num_batches = 0
 
-    for batch in dataloader:
+    desc = "Validation"
+    if epoch is not None and num_epochs is not None:
+        desc = f"Validation {epoch}/{num_epochs}"
+
+    progress = _progress(dataloader, desc=desc, leave=False)
+    for batch in progress:
         input_ids = batch["input_ids"].to(device)
         attention_mask = batch["attention_mask"].to(device)
         labels = batch["labels"].to(device)
@@ -48,6 +77,14 @@ def validate(model, dataloader, device):
         outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
         total_loss += outputs.loss.item()
         num_batches += 1
+        if tqdm is not None:
+            progress.set_postfix(loss=f"{total_loss / num_batches:.4f}")
+        if num_batches == 1 or num_batches % 100 == 0 or num_batches == len(dataloader):
+            print(
+                f"    {desc}: batch {num_batches}/{len(dataloader)} "
+                f"| avg loss {total_loss / num_batches:.4f}",
+                flush=True,
+            )
 
     return total_loss / num_batches
 
@@ -63,7 +100,7 @@ def generate_texts(model, dataset_hf, tokenizer, device, max_new_tokens=128, num
     unique_mrs = list(set(item["meaning_representation"] for item in dataset_hf))
     results = []
 
-    for mr in unique_mrs:
+    for idx, mr in enumerate(_progress(unique_mrs, desc="Generating", leave=False), start=1):
         prompt = f"{mr_token} {mr} {text_token}"
         inputs = tokenizer(prompt, return_tensors="pt").to(device)
 
@@ -85,6 +122,8 @@ def generate_texts(model, dataset_hf, tokenizer, device, max_new_tokens=128, num
             generated = full_text
 
         results.append((mr, generated))
+        if idx == 1 or idx % 100 == 0 or idx == len(unique_mrs):
+            print(f"    Generating: {idx}/{len(unique_mrs)}", flush=True)
 
     return results
 
@@ -177,8 +216,14 @@ def run_experiment(
 
     for epoch in range(num_epochs):
         logger.start_epoch()
-        train_loss = train_one_epoch(model, train_loader, optimizer, scheduler, device)
-        val_loss = validate(model, val_loader, device)
+        train_loss = train_one_epoch(
+            model, train_loader, optimizer, scheduler, device,
+            epoch=epoch + 1, num_epochs=num_epochs,
+        )
+        val_loss = validate(
+            model, val_loader, device,
+            epoch=epoch + 1, num_epochs=num_epochs,
+        )
         elapsed = logger.end_epoch(train_loss, val_loss)
 
         print(f"  Epoch {epoch+1}/{num_epochs} | Train Loss: {train_loss:.4f} "
@@ -198,6 +243,7 @@ def run_experiment(
 
     results = {
         "experiment_name": experiment_name,
+        "status": "complete",
         "params": param_info,
         "training_history": logger.get_history(),
         "test_metrics": metrics,
