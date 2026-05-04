@@ -96,3 +96,113 @@ class PlateauTrigger:
         self._evals_since_improvement = 0
         self._mode = "grace"
         return {"stage": True}
+
+
+class SequentialOptimizerManager:
+    """AdamW + warmup-only LR + per-group LR multiplier for old stages.
+
+    Two param groups (when alpha_old > 0):
+        - "active": newly-appended stage's params, lr = base_lr * warmup_factor
+        - "old":   all previously-appended stages' params, lr = alpha_old * base_lr * warmup_factor
+
+    When alpha_old == 0, the old stages are frozen via requires_grad=False
+    and removed from the optimizer entirely (saves moment state).
+
+    Adam moments are preserved across stage transitions for old params -- we
+    do NOT recreate the optimizer when adding a stage. We just shuffle the
+    new stage's params into a freshly-added param group.
+    """
+
+    def __init__(self, model, base_lr, alpha_old, weight_decay, warmup_steps):
+        self.model = model
+        self.base_lr = base_lr
+        self.alpha_old = alpha_old
+        self.weight_decay = weight_decay
+        self.warmup_steps = warmup_steps
+        self._global_step = 0
+
+        # initial state: one stage exists, everything trainable goes in the active group
+        active_params = [p for p in model.parameters() if p.requires_grad]
+        self.optimizer = AdamW(
+            [{"params": active_params, "initial_lr": base_lr, "lr": base_lr,
+              "_role": "active"}],
+            lr=base_lr,
+            weight_decay=weight_decay,
+        )
+        # apply warmup factor for step 0
+        self.set_step(0)
+
+    def _warmup_factor(self):
+        if self.warmup_steps <= 0:
+            return 1.0
+        return min(self._global_step / self.warmup_steps, 1.0)
+
+    def set_step(self, step):
+        """Update each group's lr based on warmup. Call once per training step
+        BEFORE optimizer.step()."""
+        self._global_step = step
+        f = self._warmup_factor()
+        for g in self.optimizer.param_groups:
+            g["lr"] = g["initial_lr"] * f
+
+    def step(self):
+        self.optimizer.step()
+
+    def zero_grad(self):
+        self.optimizer.zero_grad()
+
+    def on_stage_added(self, new_stages):
+        """Called immediately after append_stage_to_model.
+
+        new_stages is a list of LoRAQVStage instances (the freshly-added ones).
+
+        Reorganizes param groups:
+          - alpha_old == 0: freeze old params (requires_grad=False), remove the
+              "active" group, and create a new active group with only new params.
+              Also remove old params from optimizer.state to free memory.
+          - alpha_old > 0: rename the existing "active" group to "old" (with its
+              initial_lr scaled by alpha_old), and add a new "active" group with
+              the new stages' params at base_lr.
+        """
+        new_params = []
+        for stage in new_stages:
+            new_params.extend(stage.parameters())
+
+        # take a template group dict so we get all of AdamW's required keys
+        # (betas, eps, amsgrad, foreach, capturable, differentiable, fused, etc).
+        # safer than hardcoding the list — survives torch version bumps.
+        template = self.optimizer.param_groups[0]
+
+        if self.alpha_old == 0.0:
+            # freeze every existing param and remove from optimizer state
+            for g in self.optimizer.param_groups:
+                for p in g["params"]:
+                    p.requires_grad = False
+                    if p in self.optimizer.state:
+                        del self.optimizer.state[p]
+            # rebuild groups: just the new active group
+            new_group = dict(template)
+            new_group["params"] = new_params
+            new_group["initial_lr"] = self.base_lr
+            new_group["lr"] = self.base_lr
+            new_group["_role"] = "active"
+            new_group["weight_decay"] = self.weight_decay
+            self.optimizer.param_groups = [new_group]
+        else:
+            # demote current active group(s) to "old" and add a new active group
+            for g in self.optimizer.param_groups:
+                if g.get("_role") == "active":
+                    g["_role"] = "old"
+                    g["initial_lr"] = self.base_lr * self.alpha_old
+                # if there's already an "old" group, leave it as-is (its lr is
+                # already alpha_old * base_lr from when IT was demoted)
+            new_group = dict(template)
+            new_group["params"] = new_params
+            new_group["initial_lr"] = self.base_lr
+            new_group["lr"] = self.base_lr
+            new_group["_role"] = "active"
+            new_group["weight_decay"] = self.weight_decay
+            self.optimizer.add_param_group(new_group)
+
+        # re-apply warmup factor since groups changed
+        self.set_step(self._global_step)
