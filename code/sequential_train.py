@@ -39,7 +39,10 @@ class FixedStepTrigger:
             self.boundaries = set()
 
     def update(self, step, **_):
+        # one-shot: remove the boundary once fired so a second call at the same
+        # step (e.g. eval_every aligns w/ a boundary step) doesnt double-fire
         if step in self.boundaries:
+            self.boundaries.discard(step)
             return {"stage": True}
         return {}
 
@@ -68,7 +71,12 @@ class PlateauTrigger:
         self._evals_since_improvement = 0
         self._mode = "watching"  # or "grace"
 
-    def update(self, val_loss, current_total_rank, **_):
+    def update(self, val_loss=None, current_total_rank=None, **_):
+        # the driver pings every trigger on each train step and again after each
+        # validation. on per-step (no val_loss) calls there's nothing to decide,
+        # so just no-op. the real work happens on val-loss calls.
+        if val_loss is None:
+            return {}
         improved = val_loss < (self._best_since_marker - self.delta)
         if improved:
             self._best_since_marker = val_loss

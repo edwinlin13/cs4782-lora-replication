@@ -39,6 +39,17 @@ def test_fixed_step_one_stage_never_fires():
     assert fires == []
 
 
+def test_fixed_step_idempotent_on_repeat_call():
+    """Calling update twice on the same boundary step must only fire once.
+    The driver pings the trigger after the train step and again after eval
+    (when eval_every aligns w/ a boundary), so this matters."""
+    trig = FixedStepTrigger(total_steps=8, num_stages=2)  # boundary at 4
+    first = trig.update(step=4)
+    second = trig.update(step=4)
+    assert first.get("stage")
+    assert not second.get("stage")
+
+
 # ---- PlateauTrigger ----
 
 def test_plateau_does_not_fire_when_improving():
@@ -86,6 +97,15 @@ def test_plateau_caps_total_rank():
     d = trig.update(val_loss=0.5, current_total_rank=4)
     assert d.get("stop")
     assert not d.get("stage")
+
+
+def test_plateau_no_op_on_per_step_call_without_val_loss():
+    """The driver pings every trigger on each train step (no val_loss). Plateau
+    must no-op gracefully, not crash on missing val_loss."""
+    trig = PlateauTrigger(patience=3, delta=0.001, max_total_rank=10, per_stage_rank=2)
+    # per-step call style
+    d = trig.update(step=42, current_total_rank=2)
+    assert d == {}, f"expected no-op, got {d}"
 
 
 def test_optim_manager_initial_active_group_at_base_lr():
@@ -196,10 +216,12 @@ if __name__ == "__main__":
     test_fixed_step_fires_at_each_boundary()
     test_fixed_step_no_fire_at_step_zero_or_total()
     test_fixed_step_one_stage_never_fires()
+    test_fixed_step_idempotent_on_repeat_call()
     test_plateau_does_not_fire_when_improving()
     test_plateau_fires_after_patience_no_improvement()
     test_plateau_signals_stop_after_post_stage_no_improvement()
     test_plateau_caps_total_rank()
+    test_plateau_no_op_on_per_step_call_without_val_loss()
     print("Trigger tests passed!")
     print("Running optimizer manager tests (downloads gpt2)...")
     test_optim_manager_initial_active_group_at_base_lr()
