@@ -300,6 +300,13 @@ def run_sequential_experiment(
             outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
             loss = outputs.loss
 
+            # NaN/Inf guard. without this, plateau trigger sees nan<x as False forever,
+            # never fires, never stops, and we burn 3 hrs of colab on garbage.
+            if not torch.isfinite(loss):
+                print(f"!!! non-finite loss ({loss.item()}) at step {global_step}, aborting run", flush=True)
+                should_stop = True
+                break
+
             optim_mgr.zero_grad()
             loss.backward()
             optim_mgr.step()
