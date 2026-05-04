@@ -1,0 +1,8 @@
+{
+  "cell_index": 10,
+  "cell_id": "43db3cee",
+  "execution_count": null,
+  "source": "rows = []\nfor name, r in results.items():\n    is_medium = \"medium\" in name\n    if \"stage_events\" in r:\n        final_rank = r.get(\"final_total_rank\", \"-\")\n    else:\n        final_rank = 2 if \"r2\" in name else 8\n    rows.append({\n        \"name\": name,\n        \"model\": \"gpt2-medium\" if is_medium else \"gpt2-small\",\n        \"final_rank\": final_rank,\n        \"trainable\": r[\"params\"][\"trainable\"],\n        \"bleu\": r[\"test_metrics\"][\"bleu\"],\n        \"rouge_l\": r[\"test_metrics\"][\"rouge_l\"],\n    })\n\nprint(f\"{'Name':<32} {'Model':<12} {'Final Rank':>10} {'Trainable':>14} {'BLEU':>8} {'ROUGE-L':>8}\")\nprint(\"-\" * 90)\nfor row in rows:\n    print(f\"{row['name']:<32} {row['model']:<12} {str(row['final_rank']):>10} \"\n          f\"{row['trainable']:>14,} {row['bleu']:>8.4f} {row['rouge_l']:>8.4f}\")\n",
+  "stdout_text": "",
+  "outputs_raw": []
+}

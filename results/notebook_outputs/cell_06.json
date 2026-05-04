@@ -1,0 +1,690 @@
+{
+  "cell_index": 6,
+  "cell_id": "ca152e5f",
+  "execution_count": 7,
+  "source": "# ---- gpt2-medium rank-8 comparison (single seed) ----\n# 4 conditions: rank-8 inject_lora baseline + 3 sequential alpha values.\n# sequential is 4 stages of rank 2 each -> final rank 8.\n# uses gpt2-medium (355M) so the optimization landscape has more room\n# for the alpha knob to show an effect than gpt2 small.\n# expected wall clock on A100: ~5-6 hours for all 4 runs.\n# resumable: skips any run whose JSON exists.\nimport os\n\nMEDIUM_MAX_RANK = 8\nMEDIUM_STAGES = 4  # 4 stages of rank-2 each -> final rank 8\n\n# rank-8 inject_lora baseline (no staging)\n_baseline_json = \"../results/metrics/lora_medium_r8.json\"\nif os.path.exists(_baseline_json):\n    print(f\"[skip] lora_medium_r8 already done -> {_baseline_json}\")\nelse:\n    print(f\"\\n{'=' * 60}\\nlora_medium_r8 (no staging, rank=8)\\n{'=' * 60}\")\n    model = GPT2LMHeadModel.from_pretrained(\"gpt2-medium\")\n    model.resize_token_embeddings(len(tokenizer))\n    inject_lora(model, rank=MEDIUM_MAX_RANK, alpha=MEDIUM_MAX_RANK)\n    run_experiment(\n        model=model,\n        train_loader=train_loader,\n        val_loader=val_loader,\n        test_loader=test_loader,\n        test_dataset_hf=dataset[\"test\"],\n        tokenizer=tokenizer,\n        device=device,\n        num_epochs=NUM_EPOCHS,\n        learning_rate=2e-4,\n        weight_decay=0.01,\n        warmup_steps=500,\n        experiment_name=\"lora_medium_r8\",\n    )\n\n# 3 sequential conditions at total rank=8 (4 stages of rank 2)\nfor alpha_old, name in [(0.0, \"seq_medium_fixed_frozen\"),\n                        (0.1, \"seq_medium_fixed_hybrid\"),\n                        (1.0, \"seq_medium_fixed_unfrozen\")]:\n    json_path = f\"../results/metrics/sequential/{name}.json\"\n    if os.path.exists(json_path):\n        print(f\"[skip] {name} already done -> {json_path}\")\n        continue\n    print(f\"\\n{'=' * 60}\\n{name} (gpt2-medium, alpha_old={alpha_old}, rank=8)\\n{'=' * 60}\")\n    model = GPT2LMHeadModel.from_pretrained(\"gpt2-medium\")\n    model.resize_token_embeddings(len(tokenizer))\n    inject_sequential_lora(model, rank=2, alpha=2)\n\n    trigger = FixedStepTrigger(total_steps=TOTAL_STEPS, num_stages=MEDIUM_STAGES)\n    run_sequential_experiment(\n        model=model,\n        train_loader=train_loader,\n        val_loader=val_loader,\n        test_loader=test_loader,\n        test_dataset_hf=dataset[\"test\"],\n        tokenizer=tokenizer,\n        device=device,\n        trigger=trigger,\n        per_stage_rank=2,\n        per_stage_alpha=2,\n        alpha_old=alpha_old,\n        num_epochs=NUM_EPOCHS,\n        learning_rate=2e-4,\n        weight_decay=0.01,\n        warmup_steps=500,\n        eval_every=200,\n        experiment_name=name,\n    )\n",
+  "stdout_text": "\n============================================================\nlora_medium_r8 (no staging, rank=8)\n============================================================\nconfig.json:   0%|          | 0.00/718 [00:00<?, ?B/s]model.safetensors:   0%|          | 0.00/1.52G [00:00<?, ?B/s]Loading weights:   0%|          | 0/292 [00:00<?, ?it/s]GPT2LMHeadModel LOAD REPORT from: gpt2-medium\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...23}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\ngeneration_config.json:   0%|          | 0.00/124 [00:00<?, ?B/s][lora_medium_r8] Trainable params: 786,432 / 355,611,648 (0.2211%)\nTraining 1/5:   0%|          | 0/5258 [00:00<?, ?it/s]    Training 1/5: batch 1/5258 | avg loss 4.5713\n    Training 1/5: batch 100/5258 | avg loss 4.7063\n    Training 1/5: batch 200/5258 | avg loss 4.2762\n    Training 1/5: batch 300/5258 | avg loss 3.6143\n    Training 1/5: batch 400/5258 | avg loss 3.1446\n    Training 1/5: batch 500/5258 | avg loss 2.8271\n    Training 1/5: batch 600/5258 | avg loss 2.5977\n    Training 1/5: batch 700/5258 | avg loss 2.4211\n    Training 1/5: batch 800/5258 | avg loss 2.2819\n    Training 1/5: batch 900/5258 | avg loss 2.1671\n    Training 1/5: batch 1000/5258 | avg loss 2.0734\n    Training 1/5: batch 1100/5258 | avg loss 1.9953\n    Training 1/5: batch 1200/5258 | avg loss 1.9259\n    Training 1/5: batch 1300/5258 | avg loss 1.8671\n    Training 1/5: batch 1400/5258 | avg loss 1.8143\n    Training 1/5: batch 1500/5258 | avg loss 1.7696\n    Training 1/5: batch 1600/5258 | avg loss 1.7299\n    Training 1/5: batch 1700/5258 | avg loss 1.6946\n    Training 1/5: batch 1800/5258 | avg loss 1.6629\n    Training 1/5: batch 1900/5258 | avg loss 1.6327\n    Training 1/5: batch 2000/5258 | avg loss 1.6063\n    Training 1/5: batch 2100/5258 | avg loss 1.5812\n    Training 1/5: batch 2200/5258 | avg loss 1.5584\n    Training 1/5: batch 2300/5258 | avg loss 1.5374\n    Training 1/5: batch 2400/5258 | avg loss 1.5182\n    Training 1/5: batch 2500/5258 | avg loss 1.5003\n    Training 1/5: batch 2600/5258 | avg loss 1.4841\n    Training 1/5: batch 2700/5258 | avg loss 1.4692\n    Training 1/5: batch 2800/5258 | avg loss 1.4546\n    Training 1/5: batch 2900/5258 | avg loss 1.4411\n    Training 1/5: batch 3000/5258 | avg loss 1.4282\n    Training 1/5: batch 3100/5258 | avg loss 1.4159\n    Training 1/5: batch 3200/5258 | avg loss 1.4043\n    Training 1/5: batch 3300/5258 | avg loss 1.3931\n    Training 1/5: batch 3400/5258 | avg loss 1.3826\n    Training 1/5: batch 3500/5258 | avg loss 1.3727\n    Training 1/5: batch 3600/5258 | avg loss 1.3630\n    Training 1/5: batch 3700/5258 | avg loss 1.3538\n    Training 1/5: batch 3800/5258 | avg loss 1.3454\n    Training 1/5: batch 3900/5258 | avg loss 1.3374\n    Training 1/5: batch 4000/5258 | avg loss 1.3294\n    Training 1/5: batch 4100/5258 | avg loss 1.3219\n    Training 1/5: batch 4200/5258 | avg loss 1.3148\n    Training 1/5: batch 4300/5258 | avg loss 1.3073\n    Training 1/5: batch 4400/5258 | avg loss 1.3008\n    Training 1/5: batch 4500/5258 | avg loss 1.2942\n    Training 1/5: batch 4600/5258 | avg loss 1.2881\n    Training 1/5: batch 4700/5258 | avg loss 1.2826\n    Training 1/5: batch 4800/5258 | avg loss 1.2769\n    Training 1/5: batch 4900/5258 | avg loss 1.2716\n    Training 1/5: batch 5000/5258 | avg loss 1.2659\n    Training 1/5: batch 5100/5258 | avg loss 1.2608\n    Training 1/5: batch 5200/5258 | avg loss 1.2559\n    Training 1/5: batch 5258/5258 | avg loss 1.2530\nValidation 1/5:   0%|          | 0/584 [00:00<?, ?it/s]    Validation 1/5: batch 1/584 | avg loss 1.3105\n    Validation 1/5: batch 100/584 | avg loss 0.9356\n    Validation 1/5: batch 200/584 | avg loss 0.9011\n    Validation 1/5: batch 300/584 | avg loss 0.9210\n    Validation 1/5: batch 400/584 | avg loss 0.9122\n    Validation 1/5: batch 500/584 | avg loss 0.9397\n    Validation 1/5: batch 584/584 | avg loss 0.9517\n  Epoch 1/5 | Train Loss: 1.2530 | Val Loss: 0.9517 | Time: 473.0s\nTraining 2/5:   0%|          | 0/5258 [00:00<?, ?it/s]    Training 2/5: batch 1/5258 | avg loss 1.1000\n    Training 2/5: batch 100/5258 | avg loss 0.9811\n    Training 2/5: batch 200/5258 | avg loss 0.9800\n    Training 2/5: batch 300/5258 | avg loss 0.9843\n    Training 2/5: batch 400/5258 | avg loss 0.9903\n    Training 2/5: batch 500/5258 | avg loss 0.9895\n    Training 2/5: batch 600/5258 | avg loss 0.9875\n    Training 2/5: batch 700/5258 | avg loss 0.9867\n    Training 2/5: batch 800/5258 | avg loss 0.9870\n    Training 2/5: batch 900/5258 | avg loss 0.9860\n    Training 2/5: batch 1000/5258 | avg loss 0.9837\n    Training 2/5: batch 1100/5258 | avg loss 0.9829\n    Training 2/5: batch 1200/5258 | avg loss 0.9809\n    Training 2/5: batch 1300/5258 | avg loss 0.9806\n    Training 2/5: batch 1400/5258 | avg loss 0.9806\n    Training 2/5: batch 1500/5258 | avg loss 0.9804\n    Training 2/5: batch 1600/5258 | avg loss 0.9788\n    Training 2/5: batch 1700/5258 | avg loss 0.9776\n    Training 2/5: batch 1800/5258 | avg loss 0.9772\n    Training 2/5: batch 1900/5258 | avg loss 0.9754\n    Training 2/5: batch 2000/5258 | avg loss 0.9744\n    Training 2/5: batch 2100/5258 | avg loss 0.9742\n    Training 2/5: batch 2200/5258 | avg loss 0.9732\n    Training 2/5: batch 2300/5258 | avg loss 0.9721\n    Training 2/5: batch 2400/5258 | avg loss 0.9714\n    Training 2/5: batch 2500/5258 | avg loss 0.9708\n    Training 2/5: batch 2600/5258 | avg loss 0.9704\n    Training 2/5: batch 2700/5258 | avg loss 0.9699\n    Training 2/5: batch 2800/5258 | avg loss 0.9690\n    Training 2/5: batch 2900/5258 | avg loss 0.9683\n    Training 2/5: batch 3000/5258 | avg loss 0.9676\n    Training 2/5: batch 3100/5258 | avg loss 0.9666\n    Training 2/5: batch 3200/5258 | avg loss 0.9659\n    Training 2/5: batch 3300/5258 | avg loss 0.9653\n    Training 2/5: batch 3400/5258 | avg loss 0.9653\n    Training 2/5: batch 3500/5258 | avg loss 0.9646\n    Training 2/5: batch 3600/5258 | avg loss 0.9643\n    Training 2/5: batch 3700/5258 | avg loss 0.9640\n    Training 2/5: batch 3800/5258 | avg loss 0.9633\n    Training 2/5: batch 3900/5258 | avg loss 0.9629\n    Training 2/5: batch 4000/5258 | avg loss 0.9622\n    Training 2/5: batch 4100/5258 | avg loss 0.9616\n    Training 2/5: batch 4200/5258 | avg loss 0.9614\n    Training 2/5: batch 4300/5258 | avg loss 0.9615\n    Training 2/5: batch 4400/5258 | avg loss 0.9606\n    Training 2/5: batch 4500/5258 | avg loss 0.9600\n    Training 2/5: batch 4600/5258 | avg loss 0.9595\n    Training 2/5: batch 4700/5258 | avg loss 0.9590\n    Training 2/5: batch 4800/5258 | avg loss 0.9588\n    Training 2/5: batch 4900/5258 | avg loss 0.9584\n    Training 2/5: batch 5000/5258 | avg loss 0.9582\n    Training 2/5: batch 5100/5258 | avg loss 0.9579\n    Training 2/5: batch 5200/5258 | avg loss 0.9575\n    Training 2/5: batch 5258/5258 | avg loss 0.9570\nValidation 2/5:   0%|          | 0/584 [00:00<?, ?it/s]    Validation 2/5: batch 1/584 | avg loss 1.3642\n    Validation 2/5: batch 100/584 | avg loss 0.9168\n    Validation 2/5: batch 200/584 | avg loss 0.8702\n    Validation 2/5: batch 300/584 | avg loss 0.9272\n    Validation 2/5: batch 400/584 | avg loss 0.9057\n    Validation 2/5: batch 500/584 | avg loss 0.9319\n    Validation 2/5: batch 584/584 | avg loss 0.9476\n  Epoch 2/5 | Train Loss: 0.9570 | Val Loss: 0.9476 | Time: 472.4s\nTraining 3/5:   0%|          | 0/5258 [00:00<?, ?it/s]    Training 3/5: batch 1/5258 | avg loss 0.8851\n    Training 3/5: batch 100/5258 | avg loss 0.9383\n    Training 3/5: batch 200/5258 | avg loss 0.9309\n    Training 3/5: batch 300/5258 | avg loss 0.9286\n    Training 3/5: batch 400/5258 | avg loss 0.9280\n    Training 3/5: batch 500/5258 | avg loss 0.9246\n    Training 3/5: batch 600/5258 | avg loss 0.9255\n    Training 3/5: batch 700/5258 | avg loss 0.9262\n    Training 3/5: batch 800/5258 | avg loss 0.9278\n    Training 3/5: batch 900/5258 | avg loss 0.9290\n    Training 3/5: batch 1000/5258 | avg loss 0.9296\n    Training 3/5: batch 1100/5258 | avg loss 0.9299\n    Training 3/5: batch 1200/5258 | avg loss 0.9295\n    Training 3/5: batch 1300/5258 | avg loss 0.9282\n    Training 3/5: batch 1400/5258 | avg loss 0.9276\n    Training 3/5: batch 1500/5258 | avg loss 0.9268\n    Training 3/5: batch 1600/5258 | avg loss 0.9266\n    Training 3/5: batch 1700/5258 | avg loss 0.9262\n    Training 3/5: batch 1800/5258 | avg loss 0.9250\n    Training 3/5: batch 1900/5258 | avg loss 0.9248\n    Training 3/5: batch 2000/5258 | avg loss 0.9239\n    Training 3/5: batch 2100/5258 | avg loss 0.9238\n    Training 3/5: batch 2200/5258 | avg loss 0.9235\n    Training 3/5: batch 2300/5258 | avg loss 0.9230\n    Training 3/5: batch 2400/5258 | avg loss 0.9223\n    Training 3/5: batch 2500/5258 | avg loss 0.9218\n    Training 3/5: batch 2600/5258 | avg loss 0.9207\n    Training 3/5: batch 2700/5258 | avg loss 0.9204\n    Training 3/5: batch 2800/5258 | avg loss 0.9200\n    Training 3/5: batch 2900/5258 | avg loss 0.9192\n    Training 3/5: batch 3000/5258 | avg loss 0.9189\n    Training 3/5: batch 3100/5258 | avg loss 0.9192\n    Training 3/5: batch 3200/5258 | avg loss 0.9193\n    Training 3/5: batch 3300/5258 | avg loss 0.9196\n    Training 3/5: batch 3400/5258 | avg loss 0.9194\n    Training 3/5: batch 3500/5258 | avg loss 0.9190\n    Training 3/5: batch 3600/5258 | avg loss 0.9184\n    Training 3/5: batch 3700/5258 | avg loss 0.9177\n    Training 3/5: batch 3800/5258 | avg loss 0.9173\n    Training 3/5: batch 3900/5258 | avg loss 0.9167\n    Training 3/5: batch 4000/5258 | avg loss 0.9167\n    Training 3/5: batch 4100/5258 | avg loss 0.9166\n    Training 3/5: batch 4200/5258 | avg loss 0.9164\n    Training 3/5: batch 4300/5258 | avg loss 0.9160\n    Training 3/5: batch 4400/5258 | avg loss 0.9155\n    Training 3/5: batch 4500/5258 | avg loss 0.9151\n    Training 3/5: batch 4600/5258 | avg loss 0.9147\n    Training 3/5: batch 4700/5258 | avg loss 0.9145\n    Training 3/5: batch 4800/5258 | avg loss 0.9145\n    Training 3/5: batch 4900/5258 | avg loss 0.9145\n    Training 3/5: batch 5000/5258 | avg loss 0.9145\n    Training 3/5: batch 5100/5258 | avg loss 0.9142\n    Training 3/5: batch 5200/5258 | avg loss 0.9137\n    Training 3/5: batch 5258/5258 | avg loss 0.9133\nValidation 3/5:   0%|          | 0/584 [00:00<?, ?it/s]    Validation 3/5: batch 1/584 | avg loss 1.4148\n    Validation 3/5: batch 100/584 | avg loss 0.9117\n    Validation 3/5: batch 200/584 | avg loss 0.8637\n    Validation 3/5: batch 300/584 | avg loss 0.9435\n    Validation 3/5: batch 400/584 | avg loss 0.9171\n    Validation 3/5: batch 500/584 | avg loss 0.9454\n    Validation 3/5: batch 584/584 | avg loss 0.9623\n  Epoch 3/5 | Train Loss: 0.9133 | Val Loss: 0.9623 | Time: 479.8s\nTraining 4/5:   0%|          | 0/5258 [00:00<?, ?it/s]    Training 4/5: batch 1/5258 | avg loss 0.8766\n    Training 4/5: batch 100/5258 | avg loss 0.8980\n    Training 4/5: batch 200/5258 | avg loss 0.8951\n    Training 4/5: batch 300/5258 | avg loss 0.8937\n    Training 4/5: batch 400/5258 | avg loss 0.8925\n    Training 4/5: batch 500/5258 | avg loss 0.8932\n    Training 4/5: batch 600/5258 | avg loss 0.8965\n    Training 4/5: batch 700/5258 | avg loss 0.8965\n    Training 4/5: batch 800/5258 | avg loss 0.8961\n    Training 4/5: batch 900/5258 | avg loss 0.8968\n    Training 4/5: batch 1000/5258 | avg loss 0.8945\n    Training 4/5: batch 1100/5258 | avg loss 0.8938\n    Training 4/5: batch 1200/5258 | avg loss 0.8928\n    Training 4/5: batch 1300/5258 | avg loss 0.8922\n    Training 4/5: batch 1400/5258 | avg loss 0.8931\n    Training 4/5: batch 1500/5258 | avg loss 0.8939\n    Training 4/5: batch 1600/5258 | avg loss 0.8937\n    Training 4/5: batch 1700/5258 | avg loss 0.8936\n    Training 4/5: batch 1800/5258 | avg loss 0.8933\n    Training 4/5: batch 1900/5258 | avg loss 0.8936\n    Training 4/5: batch 2000/5258 | avg loss 0.8935\n    Training 4/5: batch 2100/5258 | avg loss 0.8935\n    Training 4/5: batch 2200/5258 | avg loss 0.8930\n    Training 4/5: batch 2300/5258 | avg loss 0.8926\n    Training 4/5: batch 2400/5258 | avg loss 0.8924\n    Training 4/5: batch 2500/5258 | avg loss 0.8919\n    Training 4/5: batch 2600/5258 | avg loss 0.8920\n    Training 4/5: batch 2700/5258 | avg loss 0.8916\n    Training 4/5: batch 2800/5258 | avg loss 0.8915\n    Training 4/5: batch 2900/5258 | avg loss 0.8914\n    Training 4/5: batch 3000/5258 | avg loss 0.8909\n    Training 4/5: batch 3100/5258 | avg loss 0.8903\n    Training 4/5: batch 3200/5258 | avg loss 0.8905\n    Training 4/5: batch 3300/5258 | avg loss 0.8900\n    Training 4/5: batch 3400/5258 | avg loss 0.8898\n    Training 4/5: batch 3500/5258 | avg loss 0.8900\n    Training 4/5: batch 3600/5258 | avg loss 0.8899\n    Training 4/5: batch 3700/5258 | avg loss 0.8900\n    Training 4/5: batch 3800/5258 | avg loss 0.8901\n    Training 4/5: batch 3900/5258 | avg loss 0.8899\n    Training 4/5: batch 4000/5258 | avg loss 0.8898\n    Training 4/5: batch 4100/5258 | avg loss 0.8897\n    Training 4/5: batch 4200/5258 | avg loss 0.8893\n    Training 4/5: batch 4300/5258 | avg loss 0.8891\n    Training 4/5: batch 4400/5258 | avg loss 0.8891\n    Training 4/5: batch 4500/5258 | avg loss 0.8892\n    Training 4/5: batch 4600/5258 | avg loss 0.8888\n    Training 4/5: batch 4700/5258 | avg loss 0.8887\n    Training 4/5: batch 4800/5258 | avg loss 0.8885\n    Training 4/5: batch 4900/5258 | avg loss 0.8881\n    Training 4/5: batch 5000/5258 | avg loss 0.8882\n    Training 4/5: batch 5100/5258 | avg loss 0.8883\n    Training 4/5: batch 5200/5258 | avg loss 0.8882\n    Training 4/5: batch 5258/5258 | avg loss 0.8880\nValidation 4/5:   0%|          | 0/584 [00:00<?, ?it/s]    Validation 4/5: batch 1/584 | avg loss 1.3819\n    Validation 4/5: batch 100/584 | avg loss 0.8971\n    Validation 4/5: batch 200/584 | avg loss 0.8518\n    Validation 4/5: batch 300/584 | avg loss 0.9443\n    Validation 4/5: batch 400/584 | avg loss 0.9167\n    Validation 4/5: batch 500/584 | avg loss 0.9456\n    Validation 4/5: batch 584/584 | avg loss 0.9670\n  Epoch 4/5 | Train Loss: 0.8880 | Val Loss: 0.9670 | Time: 481.2s\nTraining 5/5:   0%|          | 0/5258 [00:00<?, ?it/s]    Training 5/5: batch 1/5258 | avg loss 0.7894\n    Training 5/5: batch 100/5258 | avg loss 0.8788\n    Training 5/5: batch 200/5258 | avg loss 0.8702\n    Training 5/5: batch 300/5258 | avg loss 0.8742\n    Training 5/5: batch 400/5258 | avg loss 0.8734\n    Training 5/5: batch 500/5258 | avg loss 0.8732\n    Training 5/5: batch 600/5258 | avg loss 0.8733\n    Training 5/5: batch 700/5258 | avg loss 0.8715\n    Training 5/5: batch 800/5258 | avg loss 0.8735\n    Training 5/5: batch 900/5258 | avg loss 0.8720\n    Training 5/5: batch 1000/5258 | avg loss 0.8729\n    Training 5/5: batch 1100/5258 | avg loss 0.8740\n    Training 5/5: batch 1200/5258 | avg loss 0.8734\n    Training 5/5: batch 1300/5258 | avg loss 0.8746\n    Training 5/5: batch 1400/5258 | avg loss 0.8739\n    Training 5/5: batch 1500/5258 | avg loss 0.8730\n    Training 5/5: batch 1600/5258 | avg loss 0.8717\n    Training 5/5: batch 1700/5258 | avg loss 0.8717\n    Training 5/5: batch 1800/5258 | avg loss 0.8721\n    Training 5/5: batch 1900/5258 | avg loss 0.8721\n    Training 5/5: batch 2000/5258 | avg loss 0.8718\n    Training 5/5: batch 2100/5258 | avg loss 0.8720\n    Training 5/5: batch 2200/5258 | avg loss 0.8722\n    Training 5/5: batch 2300/5258 | avg loss 0.8725\n    Training 5/5: batch 2400/5258 | avg loss 0.8723\n    Training 5/5: batch 2500/5258 | avg loss 0.8720\n    Training 5/5: batch 2600/5258 | avg loss 0.8727\n    Training 5/5: batch 2700/5258 | avg loss 0.8729\n    Training 5/5: batch 2800/5258 | avg loss 0.8732\n    Training 5/5: batch 2900/5258 | avg loss 0.8726\n    Training 5/5: batch 3000/5258 | avg loss 0.8726\n    Training 5/5: batch 3100/5258 | avg loss 0.8726\n    Training 5/5: batch 3200/5258 | avg loss 0.8726\n    Training 5/5: batch 3300/5258 | avg loss 0.8725\n    Training 5/5: batch 3400/5258 | avg loss 0.8727\n    Training 5/5: batch 3500/5258 | avg loss 0.8726\n    Training 5/5: batch 3600/5258 | avg loss 0.8723\n    Training 5/5: batch 3700/5258 | avg loss 0.8724\n    Training 5/5: batch 3800/5258 | avg loss 0.8721\n    Training 5/5: batch 3900/5258 | avg loss 0.8720\n    Training 5/5: batch 4000/5258 | avg loss 0.8719\n    Training 5/5: batch 4100/5258 | avg loss 0.8719\n    Training 5/5: batch 4200/5258 | avg loss 0.8714\n    Training 5/5: batch 4300/5258 | avg loss 0.8717\n    Training 5/5: batch 4400/5258 | avg loss 0.8717\n    Training 5/5: batch 4500/5258 | avg loss 0.8716\n    Training 5/5: batch 4600/5258 | avg loss 0.8715\n    Training 5/5: batch 4700/5258 | avg loss 0.8713\n    Training 5/5: batch 4800/5258 | avg loss 0.8712\n    Training 5/5: batch 4900/5258 | avg loss 0.8712\n    Training 5/5: batch 5000/5258 | avg loss 0.8715\n    Training 5/5: batch 5100/5258 | avg loss 0.8715\n    Training 5/5: batch 5200/5258 | avg loss 0.8715\n    Training 5/5: batch 5258/5258 | avg loss 0.8716\nValidation 5/5:   0%|          | 0/584 [00:00<?, ?it/s]    Validation 5/5: batch 1/584 | avg loss 1.4126\n    Validation 5/5: batch 100/584 | avg loss 0.9142\n    Validation 5/5: batch 200/584 | avg loss 0.8596\n    Validation 5/5: batch 300/584 | avg loss 0.9601\n    Validation 5/5: batch 400/584 | avg loss 0.9320\n    Validation 5/5: batch 500/584 | avg loss 0.9613\n    Validation 5/5: batch 584/584 | avg loss 0.9815\n  Epoch 5/5 | Train Loss: 0.8716 | Val Loss: 0.9815 | Time: 473.5s\n  Generating on test set...\nGenerating:   0%|          | 0/630 [00:00<?, ?it/s]    Generating: 1/630\n    Generating: 100/630\n    Generating: 200/630\n    Generating: 300/630\n    Generating: 400/630\n    Generating: 500/630\n    Generating: 600/630\n    Generating: 630/630\n  BLEU: 0.6273 | ROUGE-L: 0.6783\n\n============================================================\nseq_medium_fixed_frozen (gpt2-medium, alpha_old=0.0, rank=8)\n============================================================\nLoading weights:   0%|          | 0/292 [00:00<?, ?it/s]GPT2LMHeadModel LOAD REPORT from: gpt2-medium\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...23}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n[seq_medium_fixed_frozen] starting, alpha_old=0.0, per_stage_rank=2, total_planned_steps=26290\n    [seq_medium_fixed_frozen] epoch 1/5 batch 1/5258 | step 1 | avg train loss 4.7152\n    [seq_medium_fixed_frozen] epoch 1/5 batch 200/5258 | step 200 | avg train loss 4.6087\n    [seq_medium_fixed_frozen] epoch 1/5 batch 400/5258 | step 400 | avg train loss 3.7052\n    [seq_medium_fixed_frozen] epoch 1/5 batch 600/5258 | step 600 | avg train loss 3.0493\n    [seq_medium_fixed_frozen] epoch 1/5 batch 800/5258 | step 800 | avg train loss 2.6690\n    [seq_medium_fixed_frozen] epoch 1/5 batch 1000/5258 | step 1000 | avg train loss 2.4224\n    [seq_medium_fixed_frozen] epoch 1/5 batch 1200/5258 | step 1200 | avg train loss 2.2434\n    [seq_medium_fixed_frozen] epoch 1/5 batch 1400/5258 | step 1400 | avg train loss 2.1103\n    [seq_medium_fixed_frozen] epoch 1/5 batch 1600/5258 | step 1600 | avg train loss 2.0036\nERROR: : \n\u001b[1;31mFailed to connect to the remote Jupyter Server 'https://8080-gpu-a100-s-kkb-ass1c2-2po7z6d5j8l2h-c.asia-southeast1-2.prod.colab.dev/'. Verify the server is running and reachable.",
+  "outputs_raw": [
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "\n",
+        "============================================================\n",
+        "lora_medium_r8 (no staging, rank=8)\n",
+        "============================================================\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "fe2a36e41d96460499bfe382e2fb55a3",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "config.json:   0%|          | 0.00/718 [00:00<?, ?B/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "b9db52eab54749688effc8a13e5a5977",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "model.safetensors:   0%|          | 0.00/1.52G [00:00<?, ?B/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "90818333f2d142a9ac9489cadfa895e2",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "Loading weights:   0%|          | 0/292 [00:00<?, ?it/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stderr",
+      "output_type": "stream",
+      "text": [
+        "GPT2LMHeadModel LOAD REPORT from: gpt2-medium\n",
+        "Key                  | Status     |  | \n",
+        "---------------------+------------+--+-\n",
+        "h.{0...23}.attn.bias | UNEXPECTED |  | \n",
+        "\n",
+        "Notes:\n",
+        "- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "efa8683743c641cbb79ee539bf718715",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "generation_config.json:   0%|          | 0.00/124 [00:00<?, ?B/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "[lora_medium_r8] Trainable params: 786,432 / 355,611,648 (0.2211%)\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "5fbcaf637dbb41a6a0e7ec0f47f261ac",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "Training 1/5:   0%|          | 0/5258 [00:00<?, ?it/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "    Training 1/5: batch 1/5258 | avg loss 4.5713\n",
+        "    Training 1/5: batch 100/5258 | avg loss 4.7063\n",
+        "    Training 1/5: batch 200/5258 | avg loss 4.2762\n",
+        "    Training 1/5: batch 300/5258 | avg loss 3.6143\n",
+        "    Training 1/5: batch 400/5258 | avg loss 3.1446\n",
+        "    Training 1/5: batch 500/5258 | avg loss 2.8271\n",
+        "    Training 1/5: batch 600/5258 | avg loss 2.5977\n",
+        "    Training 1/5: batch 700/5258 | avg loss 2.4211\n",
+        "    Training 1/5: batch 800/5258 | avg loss 2.2819\n",
+        "    Training 1/5: batch 900/5258 | avg loss 2.1671\n",
+        "    Training 1/5: batch 1000/5258 | avg loss 2.0734\n",
+        "    Training 1/5: batch 1100/5258 | avg loss 1.9953\n",
+        "    Training 1/5: batch 1200/5258 | avg loss 1.9259\n",
+        "    Training 1/5: batch 1300/5258 | avg loss 1.8671\n",
+        "    Training 1/5: batch 1400/5258 | avg loss 1.8143\n",
+        "    Training 1/5: batch 1500/5258 | avg loss 1.7696\n",
+        "    Training 1/5: batch 1600/5258 | avg loss 1.7299\n",
+        "    Training 1/5: batch 1700/5258 | avg loss 1.6946\n",
+        "    Training 1/5: batch 1800/5258 | avg loss 1.6629\n",
+        "    Training 1/5: batch 1900/5258 | avg loss 1.6327\n",
+        "    Training 1/5: batch 2000/5258 | avg loss 1.6063\n",
+        "    Training 1/5: batch 2100/5258 | avg loss 1.5812\n",
+        "    Training 1/5: batch 2200/5258 | avg loss 1.5584\n",
+        "    Training 1/5: batch 2300/5258 | avg loss 1.5374\n",
+        "    Training 1/5: batch 2400/5258 | avg loss 1.5182\n",
+        "    Training 1/5: batch 2500/5258 | avg loss 1.5003\n",
+        "    Training 1/5: batch 2600/5258 | avg loss 1.4841\n",
+        "    Training 1/5: batch 2700/5258 | avg loss 1.4692\n",
+        "    Training 1/5: batch 2800/5258 | avg loss 1.4546\n",
+        "    Training 1/5: batch 2900/5258 | avg loss 1.4411\n",
+        "    Training 1/5: batch 3000/5258 | avg loss 1.4282\n",
+        "    Training 1/5: batch 3100/5258 | avg loss 1.4159\n",
+        "    Training 1/5: batch 3200/5258 | avg loss 1.4043\n",
+        "    Training 1/5: batch 3300/5258 | avg loss 1.3931\n",
+        "    Training 1/5: batch 3400/5258 | avg loss 1.3826\n",
+        "    Training 1/5: batch 3500/5258 | avg loss 1.3727\n",
+        "    Training 1/5: batch 3600/5258 | avg loss 1.3630\n",
+        "    Training 1/5: batch 3700/5258 | avg loss 1.3538\n",
+        "    Training 1/5: batch 3800/5258 | avg loss 1.3454\n",
+        "    Training 1/5: batch 3900/5258 | avg loss 1.3374\n",
+        "    Training 1/5: batch 4000/5258 | avg loss 1.3294\n",
+        "    Training 1/5: batch 4100/5258 | avg loss 1.3219\n",
+        "    Training 1/5: batch 4200/5258 | avg loss 1.3148\n",
+        "    Training 1/5: batch 4300/5258 | avg loss 1.3073\n",
+        "    Training 1/5: batch 4400/5258 | avg loss 1.3008\n",
+        "    Training 1/5: batch 4500/5258 | avg loss 1.2942\n",
+        "    Training 1/5: batch 4600/5258 | avg loss 1.2881\n",
+        "    Training 1/5: batch 4700/5258 | avg loss 1.2826\n",
+        "    Training 1/5: batch 4800/5258 | avg loss 1.2769\n",
+        "    Training 1/5: batch 4900/5258 | avg loss 1.2716\n",
+        "    Training 1/5: batch 5000/5258 | avg loss 1.2659\n",
+        "    Training 1/5: batch 5100/5258 | avg loss 1.2608\n",
+        "    Training 1/5: batch 5200/5258 | avg loss 1.2559\n",
+        "    Training 1/5: batch 5258/5258 | avg loss 1.2530\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "9649250578a54677a5427102b422d184",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "Validation 1/5:   0%|          | 0/584 [00:00<?, ?it/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "    Validation 1/5: batch 1/584 | avg loss 1.3105\n",
+        "    Validation 1/5: batch 100/584 | avg loss 0.9356\n",
+        "    Validation 1/5: batch 200/584 | avg loss 0.9011\n",
+        "    Validation 1/5: batch 300/584 | avg loss 0.9210\n",
+        "    Validation 1/5: batch 400/584 | avg loss 0.9122\n",
+        "    Validation 1/5: batch 500/584 | avg loss 0.9397\n",
+        "    Validation 1/5: batch 584/584 | avg loss 0.9517\n",
+        "  Epoch 1/5 | Train Loss: 1.2530 | Val Loss: 0.9517 | Time: 473.0s\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "15da74fffdf547c38bac58d82c18756c",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "Training 2/5:   0%|          | 0/5258 [00:00<?, ?it/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "    Training 2/5: batch 1/5258 | avg loss 1.1000\n",
+        "    Training 2/5: batch 100/5258 | avg loss 0.9811\n",
+        "    Training 2/5: batch 200/5258 | avg loss 0.9800\n",
+        "    Training 2/5: batch 300/5258 | avg loss 0.9843\n",
+        "    Training 2/5: batch 400/5258 | avg loss 0.9903\n",
+        "    Training 2/5: batch 500/5258 | avg loss 0.9895\n",
+        "    Training 2/5: batch 600/5258 | avg loss 0.9875\n",
+        "    Training 2/5: batch 700/5258 | avg loss 0.9867\n",
+        "    Training 2/5: batch 800/5258 | avg loss 0.9870\n",
+        "    Training 2/5: batch 900/5258 | avg loss 0.9860\n",
+        "    Training 2/5: batch 1000/5258 | avg loss 0.9837\n",
+        "    Training 2/5: batch 1100/5258 | avg loss 0.9829\n",
+        "    Training 2/5: batch 1200/5258 | avg loss 0.9809\n",
+        "    Training 2/5: batch 1300/5258 | avg loss 0.9806\n",
+        "    Training 2/5: batch 1400/5258 | avg loss 0.9806\n",
+        "    Training 2/5: batch 1500/5258 | avg loss 0.9804\n",
+        "    Training 2/5: batch 1600/5258 | avg loss 0.9788\n",
+        "    Training 2/5: batch 1700/5258 | avg loss 0.9776\n",
+        "    Training 2/5: batch 1800/5258 | avg loss 0.9772\n",
+        "    Training 2/5: batch 1900/5258 | avg loss 0.9754\n",
+        "    Training 2/5: batch 2000/5258 | avg loss 0.9744\n",
+        "    Training 2/5: batch 2100/5258 | avg loss 0.9742\n",
+        "    Training 2/5: batch 2200/5258 | avg loss 0.9732\n",
+        "    Training 2/5: batch 2300/5258 | avg loss 0.9721\n",
+        "    Training 2/5: batch 2400/5258 | avg loss 0.9714\n",
+        "    Training 2/5: batch 2500/5258 | avg loss 0.9708\n",
+        "    Training 2/5: batch 2600/5258 | avg loss 0.9704\n",
+        "    Training 2/5: batch 2700/5258 | avg loss 0.9699\n",
+        "    Training 2/5: batch 2800/5258 | avg loss 0.9690\n",
+        "    Training 2/5: batch 2900/5258 | avg loss 0.9683\n",
+        "    Training 2/5: batch 3000/5258 | avg loss 0.9676\n",
+        "    Training 2/5: batch 3100/5258 | avg loss 0.9666\n",
+        "    Training 2/5: batch 3200/5258 | avg loss 0.9659\n",
+        "    Training 2/5: batch 3300/5258 | avg loss 0.9653\n",
+        "    Training 2/5: batch 3400/5258 | avg loss 0.9653\n",
+        "    Training 2/5: batch 3500/5258 | avg loss 0.9646\n",
+        "    Training 2/5: batch 3600/5258 | avg loss 0.9643\n",
+        "    Training 2/5: batch 3700/5258 | avg loss 0.9640\n",
+        "    Training 2/5: batch 3800/5258 | avg loss 0.9633\n",
+        "    Training 2/5: batch 3900/5258 | avg loss 0.9629\n",
+        "    Training 2/5: batch 4000/5258 | avg loss 0.9622\n",
+        "    Training 2/5: batch 4100/5258 | avg loss 0.9616\n",
+        "    Training 2/5: batch 4200/5258 | avg loss 0.9614\n",
+        "    Training 2/5: batch 4300/5258 | avg loss 0.9615\n",
+        "    Training 2/5: batch 4400/5258 | avg loss 0.9606\n",
+        "    Training 2/5: batch 4500/5258 | avg loss 0.9600\n",
+        "    Training 2/5: batch 4600/5258 | avg loss 0.9595\n",
+        "    Training 2/5: batch 4700/5258 | avg loss 0.9590\n",
+        "    Training 2/5: batch 4800/5258 | avg loss 0.9588\n",
+        "    Training 2/5: batch 4900/5258 | avg loss 0.9584\n",
+        "    Training 2/5: batch 5000/5258 | avg loss 0.9582\n",
+        "    Training 2/5: batch 5100/5258 | avg loss 0.9579\n",
+        "    Training 2/5: batch 5200/5258 | avg loss 0.9575\n",
+        "    Training 2/5: batch 5258/5258 | avg loss 0.9570\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "9348ac1357b24f7c860ec7ac70c84daa",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "Validation 2/5:   0%|          | 0/584 [00:00<?, ?it/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "    Validation 2/5: batch 1/584 | avg loss 1.3642\n",
+        "    Validation 2/5: batch 100/584 | avg loss 0.9168\n",
+        "    Validation 2/5: batch 200/584 | avg loss 0.8702\n",
+        "    Validation 2/5: batch 300/584 | avg loss 0.9272\n",
+        "    Validation 2/5: batch 400/584 | avg loss 0.9057\n",
+        "    Validation 2/5: batch 500/584 | avg loss 0.9319\n",
+        "    Validation 2/5: batch 584/584 | avg loss 0.9476\n",
+        "  Epoch 2/5 | Train Loss: 0.9570 | Val Loss: 0.9476 | Time: 472.4s\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "39c66ded63384e00b8bd889abc9d5a4e",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "Training 3/5:   0%|          | 0/5258 [00:00<?, ?it/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "    Training 3/5: batch 1/5258 | avg loss 0.8851\n",
+        "    Training 3/5: batch 100/5258 | avg loss 0.9383\n",
+        "    Training 3/5: batch 200/5258 | avg loss 0.9309\n",
+        "    Training 3/5: batch 300/5258 | avg loss 0.9286\n",
+        "    Training 3/5: batch 400/5258 | avg loss 0.9280\n",
+        "    Training 3/5: batch 500/5258 | avg loss 0.9246\n",
+        "    Training 3/5: batch 600/5258 | avg loss 0.9255\n",
+        "    Training 3/5: batch 700/5258 | avg loss 0.9262\n",
+        "    Training 3/5: batch 800/5258 | avg loss 0.9278\n",
+        "    Training 3/5: batch 900/5258 | avg loss 0.9290\n",
+        "    Training 3/5: batch 1000/5258 | avg loss 0.9296\n",
+        "    Training 3/5: batch 1100/5258 | avg loss 0.9299\n",
+        "    Training 3/5: batch 1200/5258 | avg loss 0.9295\n",
+        "    Training 3/5: batch 1300/5258 | avg loss 0.9282\n",
+        "    Training 3/5: batch 1400/5258 | avg loss 0.9276\n",
+        "    Training 3/5: batch 1500/5258 | avg loss 0.9268\n",
+        "    Training 3/5: batch 1600/5258 | avg loss 0.9266\n",
+        "    Training 3/5: batch 1700/5258 | avg loss 0.9262\n",
+        "    Training 3/5: batch 1800/5258 | avg loss 0.9250\n",
+        "    Training 3/5: batch 1900/5258 | avg loss 0.9248\n",
+        "    Training 3/5: batch 2000/5258 | avg loss 0.9239\n",
+        "    Training 3/5: batch 2100/5258 | avg loss 0.9238\n",
+        "    Training 3/5: batch 2200/5258 | avg loss 0.9235\n",
+        "    Training 3/5: batch 2300/5258 | avg loss 0.9230\n",
+        "    Training 3/5: batch 2400/5258 | avg loss 0.9223\n",
+        "    Training 3/5: batch 2500/5258 | avg loss 0.9218\n",
+        "    Training 3/5: batch 2600/5258 | avg loss 0.9207\n",
+        "    Training 3/5: batch 2700/5258 | avg loss 0.9204\n",
+        "    Training 3/5: batch 2800/5258 | avg loss 0.9200\n",
+        "    Training 3/5: batch 2900/5258 | avg loss 0.9192\n",
+        "    Training 3/5: batch 3000/5258 | avg loss 0.9189\n",
+        "    Training 3/5: batch 3100/5258 | avg loss 0.9192\n",
+        "    Training 3/5: batch 3200/5258 | avg loss 0.9193\n",
+        "    Training 3/5: batch 3300/5258 | avg loss 0.9196\n",
+        "    Training 3/5: batch 3400/5258 | avg loss 0.9194\n",
+        "    Training 3/5: batch 3500/5258 | avg loss 0.9190\n",
+        "    Training 3/5: batch 3600/5258 | avg loss 0.9184\n",
+        "    Training 3/5: batch 3700/5258 | avg loss 0.9177\n",
+        "    Training 3/5: batch 3800/5258 | avg loss 0.9173\n",
+        "    Training 3/5: batch 3900/5258 | avg loss 0.9167\n",
+        "    Training 3/5: batch 4000/5258 | avg loss 0.9167\n",
+        "    Training 3/5: batch 4100/5258 | avg loss 0.9166\n",
+        "    Training 3/5: batch 4200/5258 | avg loss 0.9164\n",
+        "    Training 3/5: batch 4300/5258 | avg loss 0.9160\n",
+        "    Training 3/5: batch 4400/5258 | avg loss 0.9155\n",
+        "    Training 3/5: batch 4500/5258 | avg loss 0.9151\n",
+        "    Training 3/5: batch 4600/5258 | avg loss 0.9147\n",
+        "    Training 3/5: batch 4700/5258 | avg loss 0.9145\n",
+        "    Training 3/5: batch 4800/5258 | avg loss 0.9145\n",
+        "    Training 3/5: batch 4900/5258 | avg loss 0.9145\n",
+        "    Training 3/5: batch 5000/5258 | avg loss 0.9145\n",
+        "    Training 3/5: batch 5100/5258 | avg loss 0.9142\n",
+        "    Training 3/5: batch 5200/5258 | avg loss 0.9137\n",
+        "    Training 3/5: batch 5258/5258 | avg loss 0.9133\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "657e8104ef5a4a10909254500f3bb8c6",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "Validation 3/5:   0%|          | 0/584 [00:00<?, ?it/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "    Validation 3/5: batch 1/584 | avg loss 1.4148\n",
+        "    Validation 3/5: batch 100/584 | avg loss 0.9117\n",
+        "    Validation 3/5: batch 200/584 | avg loss 0.8637\n",
+        "    Validation 3/5: batch 300/584 | avg loss 0.9435\n",
+        "    Validation 3/5: batch 400/584 | avg loss 0.9171\n",
+        "    Validation 3/5: batch 500/584 | avg loss 0.9454\n",
+        "    Validation 3/5: batch 584/584 | avg loss 0.9623\n",
+        "  Epoch 3/5 | Train Loss: 0.9133 | Val Loss: 0.9623 | Time: 479.8s\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "7be3a10689d04fa699164da5032e2082",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "Training 4/5:   0%|          | 0/5258 [00:00<?, ?it/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "    Training 4/5: batch 1/5258 | avg loss 0.8766\n",
+        "    Training 4/5: batch 100/5258 | avg loss 0.8980\n",
+        "    Training 4/5: batch 200/5258 | avg loss 0.8951\n",
+        "    Training 4/5: batch 300/5258 | avg loss 0.8937\n",
+        "    Training 4/5: batch 400/5258 | avg loss 0.8925\n",
+        "    Training 4/5: batch 500/5258 | avg loss 0.8932\n",
+        "    Training 4/5: batch 600/5258 | avg loss 0.8965\n",
+        "    Training 4/5: batch 700/5258 | avg loss 0.8965\n",
+        "    Training 4/5: batch 800/5258 | avg loss 0.8961\n",
+        "    Training 4/5: batch 900/5258 | avg loss 0.8968\n",
+        "    Training 4/5: batch 1000/5258 | avg loss 0.8945\n",
+        "    Training 4/5: batch 1100/5258 | avg loss 0.8938\n",
+        "    Training 4/5: batch 1200/5258 | avg loss 0.8928\n",
+        "    Training 4/5: batch 1300/5258 | avg loss 0.8922\n",
+        "    Training 4/5: batch 1400/5258 | avg loss 0.8931\n",
+        "    Training 4/5: batch 1500/5258 | avg loss 0.8939\n",
+        "    Training 4/5: batch 1600/5258 | avg loss 0.8937\n",
+        "    Training 4/5: batch 1700/5258 | avg loss 0.8936\n",
+        "    Training 4/5: batch 1800/5258 | avg loss 0.8933\n",
+        "    Training 4/5: batch 1900/5258 | avg loss 0.8936\n",
+        "    Training 4/5: batch 2000/5258 | avg loss 0.8935\n",
+        "    Training 4/5: batch 2100/5258 | avg loss 0.8935\n",
+        "    Training 4/5: batch 2200/5258 | avg loss 0.8930\n",
+        "    Training 4/5: batch 2300/5258 | avg loss 0.8926\n",
+        "    Training 4/5: batch 2400/5258 | avg loss 0.8924\n",
+        "    Training 4/5: batch 2500/5258 | avg loss 0.8919\n",
+        "    Training 4/5: batch 2600/5258 | avg loss 0.8920\n",
+        "    Training 4/5: batch 2700/5258 | avg loss 0.8916\n",
+        "    Training 4/5: batch 2800/5258 | avg loss 0.8915\n",
+        "    Training 4/5: batch 2900/5258 | avg loss 0.8914\n",
+        "    Training 4/5: batch 3000/5258 | avg loss 0.8909\n",
+        "    Training 4/5: batch 3100/5258 | avg loss 0.8903\n",
+        "    Training 4/5: batch 3200/5258 | avg loss 0.8905\n",
+        "    Training 4/5: batch 3300/5258 | avg loss 0.8900\n",
+        "    Training 4/5: batch 3400/5258 | avg loss 0.8898\n",
+        "    Training 4/5: batch 3500/5258 | avg loss 0.8900\n",
+        "    Training 4/5: batch 3600/5258 | avg loss 0.8899\n",
+        "    Training 4/5: batch 3700/5258 | avg loss 0.8900\n",
+        "    Training 4/5: batch 3800/5258 | avg loss 0.8901\n",
+        "    Training 4/5: batch 3900/5258 | avg loss 0.8899\n",
+        "    Training 4/5: batch 4000/5258 | avg loss 0.8898\n",
+        "    Training 4/5: batch 4100/5258 | avg loss 0.8897\n",
+        "    Training 4/5: batch 4200/5258 | avg loss 0.8893\n",
+        "    Training 4/5: batch 4300/5258 | avg loss 0.8891\n",
+        "    Training 4/5: batch 4400/5258 | avg loss 0.8891\n",
+        "    Training 4/5: batch 4500/5258 | avg loss 0.8892\n",
+        "    Training 4/5: batch 4600/5258 | avg loss 0.8888\n",
+        "    Training 4/5: batch 4700/5258 | avg loss 0.8887\n",
+        "    Training 4/5: batch 4800/5258 | avg loss 0.8885\n",
+        "    Training 4/5: batch 4900/5258 | avg loss 0.8881\n",
+        "    Training 4/5: batch 5000/5258 | avg loss 0.8882\n",
+        "    Training 4/5: batch 5100/5258 | avg loss 0.8883\n",
+        "    Training 4/5: batch 5200/5258 | avg loss 0.8882\n",
+        "    Training 4/5: batch 5258/5258 | avg loss 0.8880\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "d556efddf9004c24b881fe392542c369",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "Validation 4/5:   0%|          | 0/584 [00:00<?, ?it/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "    Validation 4/5: batch 1/584 | avg loss 1.3819\n",
+        "    Validation 4/5: batch 100/584 | avg loss 0.8971\n",
+        "    Validation 4/5: batch 200/584 | avg loss 0.8518\n",
+        "    Validation 4/5: batch 300/584 | avg loss 0.9443\n",
+        "    Validation 4/5: batch 400/584 | avg loss 0.9167\n",
+        "    Validation 4/5: batch 500/584 | avg loss 0.9456\n",
+        "    Validation 4/5: batch 584/584 | avg loss 0.9670\n",
+        "  Epoch 4/5 | Train Loss: 0.8880 | Val Loss: 0.9670 | Time: 481.2s\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "b7657a1a592e452c8c1432b0c20f493b",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "Training 5/5:   0%|          | 0/5258 [00:00<?, ?it/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "    Training 5/5: batch 1/5258 | avg loss 0.7894\n",
+        "    Training 5/5: batch 100/5258 | avg loss 0.8788\n",
+        "    Training 5/5: batch 200/5258 | avg loss 0.8702\n",
+        "    Training 5/5: batch 300/5258 | avg loss 0.8742\n",
+        "    Training 5/5: batch 400/5258 | avg loss 0.8734\n",
+        "    Training 5/5: batch 500/5258 | avg loss 0.8732\n",
+        "    Training 5/5: batch 600/5258 | avg loss 0.8733\n",
+        "    Training 5/5: batch 700/5258 | avg loss 0.8715\n",
+        "    Training 5/5: batch 800/5258 | avg loss 0.8735\n",
+        "    Training 5/5: batch 900/5258 | avg loss 0.8720\n",
+        "    Training 5/5: batch 1000/5258 | avg loss 0.8729\n",
+        "    Training 5/5: batch 1100/5258 | avg loss 0.8740\n",
+        "    Training 5/5: batch 1200/5258 | avg loss 0.8734\n",
+        "    Training 5/5: batch 1300/5258 | avg loss 0.8746\n",
+        "    Training 5/5: batch 1400/5258 | avg loss 0.8739\n",
+        "    Training 5/5: batch 1500/5258 | avg loss 0.8730\n",
+        "    Training 5/5: batch 1600/5258 | avg loss 0.8717\n",
+        "    Training 5/5: batch 1700/5258 | avg loss 0.8717\n",
+        "    Training 5/5: batch 1800/5258 | avg loss 0.8721\n",
+        "    Training 5/5: batch 1900/5258 | avg loss 0.8721\n",
+        "    Training 5/5: batch 2000/5258 | avg loss 0.8718\n",
+        "    Training 5/5: batch 2100/5258 | avg loss 0.8720\n",
+        "    Training 5/5: batch 2200/5258 | avg loss 0.8722\n",
+        "    Training 5/5: batch 2300/5258 | avg loss 0.8725\n",
+        "    Training 5/5: batch 2400/5258 | avg loss 0.8723\n",
+        "    Training 5/5: batch 2500/5258 | avg loss 0.8720\n",
+        "    Training 5/5: batch 2600/5258 | avg loss 0.8727\n",
+        "    Training 5/5: batch 2700/5258 | avg loss 0.8729\n",
+        "    Training 5/5: batch 2800/5258 | avg loss 0.8732\n",
+        "    Training 5/5: batch 2900/5258 | avg loss 0.8726\n",
+        "    Training 5/5: batch 3000/5258 | avg loss 0.8726\n",
+        "    Training 5/5: batch 3100/5258 | avg loss 0.8726\n",
+        "    Training 5/5: batch 3200/5258 | avg loss 0.8726\n",
+        "    Training 5/5: batch 3300/5258 | avg loss 0.8725\n",
+        "    Training 5/5: batch 3400/5258 | avg loss 0.8727\n",
+        "    Training 5/5: batch 3500/5258 | avg loss 0.8726\n",
+        "    Training 5/5: batch 3600/5258 | avg loss 0.8723\n",
+        "    Training 5/5: batch 3700/5258 | avg loss 0.8724\n",
+        "    Training 5/5: batch 3800/5258 | avg loss 0.8721\n",
+        "    Training 5/5: batch 3900/5258 | avg loss 0.8720\n",
+        "    Training 5/5: batch 4000/5258 | avg loss 0.8719\n",
+        "    Training 5/5: batch 4100/5258 | avg loss 0.8719\n",
+        "    Training 5/5: batch 4200/5258 | avg loss 0.8714\n",
+        "    Training 5/5: batch 4300/5258 | avg loss 0.8717\n",
+        "    Training 5/5: batch 4400/5258 | avg loss 0.8717\n",
+        "    Training 5/5: batch 4500/5258 | avg loss 0.8716\n",
+        "    Training 5/5: batch 4600/5258 | avg loss 0.8715\n",
+        "    Training 5/5: batch 4700/5258 | avg loss 0.8713\n",
+        "    Training 5/5: batch 4800/5258 | avg loss 0.8712\n",
+        "    Training 5/5: batch 4900/5258 | avg loss 0.8712\n",
+        "    Training 5/5: batch 5000/5258 | avg loss 0.8715\n",
+        "    Training 5/5: batch 5100/5258 | avg loss 0.8715\n",
+        "    Training 5/5: batch 5200/5258 | avg loss 0.8715\n",
+        "    Training 5/5: batch 5258/5258 | avg loss 0.8716\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "f25eab37d9264096b52213a173ced44d",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "Validation 5/5:   0%|          | 0/584 [00:00<?, ?it/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "    Validation 5/5: batch 1/584 | avg loss 1.4126\n",
+        "    Validation 5/5: batch 100/584 | avg loss 0.9142\n",
+        "    Validation 5/5: batch 200/584 | avg loss 0.8596\n",
+        "    Validation 5/5: batch 300/584 | avg loss 0.9601\n",
+        "    Validation 5/5: batch 400/584 | avg loss 0.9320\n",
+        "    Validation 5/5: batch 500/584 | avg loss 0.9613\n",
+        "    Validation 5/5: batch 584/584 | avg loss 0.9815\n",
+        "  Epoch 5/5 | Train Loss: 0.8716 | Val Loss: 0.9815 | Time: 473.5s\n",
+        "  Generating on test set...\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "0a2c3ea04cb9443d88493c7d116212a2",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "Generating:   0%|          | 0/630 [00:00<?, ?it/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "    Generating: 1/630\n",
+        "    Generating: 100/630\n",
+        "    Generating: 200/630\n",
+        "    Generating: 300/630\n",
+        "    Generating: 400/630\n",
+        "    Generating: 500/630\n",
+        "    Generating: 600/630\n",
+        "    Generating: 630/630\n",
+        "  BLEU: 0.6273 | ROUGE-L: 0.6783\n",
+        "\n",
+        "============================================================\n",
+        "seq_medium_fixed_frozen (gpt2-medium, alpha_old=0.0, rank=8)\n",
+        "============================================================\n"
+      ]
+    },
+    {
+      "data": {
+        "application/vnd.jupyter.widget-view+json": {
+          "model_id": "eea7af20bfa7422ea5d2bf882c3daa4e",
+          "version_major": 2,
+          "version_minor": 0
+        },
+        "text/plain": [
+          "Loading weights:   0%|          | 0/292 [00:00<?, ?it/s]"
+        ]
+      },
+      "metadata": {},
+      "output_type": "display_data"
+    },
+    {
+      "name": "stderr",
+      "output_type": "stream",
+      "text": [
+        "GPT2LMHeadModel LOAD REPORT from: gpt2-medium\n",
+        "Key                  | Status     |  | \n",
+        "---------------------+------------+--+-\n",
+        "h.{0...23}.attn.bias | UNEXPECTED |  | \n",
+        "\n",
+        "Notes:\n",
+        "- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n"
+      ]
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "[seq_medium_fixed_frozen] starting, alpha_old=0.0, per_stage_rank=2, total_planned_steps=26290\n",
+        "    [seq_medium_fixed_frozen] epoch 1/5 batch 1/5258 | step 1 | avg train loss 4.7152\n",
+        "    [seq_medium_fixed_frozen] epoch 1/5 batch 200/5258 | step 200 | avg train loss 4.6087\n",
+        "    [seq_medium_fixed_frozen] epoch 1/5 batch 400/5258 | step 400 | avg train loss 3.7052\n",
+        "    [seq_medium_fixed_frozen] epoch 1/5 batch 600/5258 | step 600 | avg train loss 3.0493\n",
+        "    [seq_medium_fixed_frozen] epoch 1/5 batch 800/5258 | step 800 | avg train loss 2.6690\n",
+        "    [seq_medium_fixed_frozen] epoch 1/5 batch 1000/5258 | step 1000 | avg train loss 2.4224\n",
+        "    [seq_medium_fixed_frozen] epoch 1/5 batch 1200/5258 | step 1200 | avg train loss 2.2434\n",
+        "    [seq_medium_fixed_frozen] epoch 1/5 batch 1400/5258 | step 1400 | avg train loss 2.1103\n",
+        "    [seq_medium_fixed_frozen] epoch 1/5 batch 1600/5258 | step 1600 | avg train loss 2.0036\n"
+      ]
+    },
+    {
+      "ename": "",
+      "evalue": "",
+      "output_type": "error",
+      "traceback": [
+        "\u001b[1;31mFailed to connect to the remote Jupyter Server 'https://8080-gpu-a100-s-kkb-ass1c2-2po7z6d5j8l2h-c.asia-southeast1-2.prod.colab.dev/'. Verify the server is running and reachable."
+      ]
+    }
+  ]
+}

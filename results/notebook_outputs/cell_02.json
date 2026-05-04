@@ -1,0 +1,27 @@
+{
+  "cell_index": 2,
+  "cell_id": "b905b067",
+  "execution_count": 3,
+  "source": "train_loader, val_loader, test_loader, tokenizer = get_dataloaders(batch_size=8, max_length=256)\ndataset = load_e2e_dataset()  # raw dicts, needed by generate_texts/compute_metrics\nNUM_EPOCHS = 5\nTOTAL_STEPS = NUM_EPOCHS * len(train_loader)\nprint(f\"train batches/epoch: {len(train_loader)}, total steps for 5 epochs: {TOTAL_STEPS}\")",
+  "stdout_text": "/usr/local/lib/python3.12/dist-packages/huggingface_hub/utils/_auth.py:103: UserWarning: \nError while fetching `HF_TOKEN` secret value from your vault: 'Requesting secret HF_TOKEN timed out. Secrets can only be fetched when running from the Colab UI.'.\nYou are not authenticated with the Hugging Face Hub in this notebook.\nIf the error persists, please let us know by opening an issue on GitHub (https://github.com/huggingface/huggingface_hub/issues/new).\n  warnings.warn(\ntrain batches/epoch: 5258, total steps for 5 epochs: 26290\n",
+  "outputs_raw": [
+    {
+      "name": "stderr",
+      "output_type": "stream",
+      "text": [
+        "/usr/local/lib/python3.12/dist-packages/huggingface_hub/utils/_auth.py:103: UserWarning: \n",
+        "Error while fetching `HF_TOKEN` secret value from your vault: 'Requesting secret HF_TOKEN timed out. Secrets can only be fetched when running from the Colab UI.'.\n",
+        "You are not authenticated with the Hugging Face Hub in this notebook.\n",
+        "If the error persists, please let us know by opening an issue on GitHub (https://github.com/huggingface/huggingface_hub/issues/new).\n",
+        "  warnings.warn(\n"
+      ]
+    },
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "train batches/epoch: 5258, total steps for 5 epochs: 26290\n"
+      ]
+    }
+  ]
+}

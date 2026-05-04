@@ -1,0 +1,8 @@
+{
+  "cell_index": 12,
+  "cell_id": "563a97ad",
+  "execution_count": null,
+  "source": "# bar charts: 2 metrics x 2 model sizes = 4 panels.\nfig, axes = plt.subplots(2, 2, figsize=(16, 10))\n\nsmall_rows = [r for r in rows if r[\"model\"] == \"gpt2-small\"]\nmedium_rows = [r for r in rows if r[\"model\"] == \"gpt2-medium\"]\n\nfor col, (model_label, mr) in enumerate([(\"gpt2-small\", small_rows), (\"gpt2-medium\", medium_rows)]):\n    if not mr:\n        for row_i in (0, 1):\n            axes[row_i, col].set_title(f\"{model_label}: (no data yet)\")\n            axes[row_i, col].text(0.5, 0.5, \"no data\", ha=\"center\", va=\"center\", transform=axes[row_i, col].transAxes)\n        continue\n    names = [r[\"name\"] for r in mr]\n    bleu = [r[\"bleu\"] for r in mr]\n    rouge = [r[\"rouge_l\"] for r in mr]\n    bar_colors = [colors.get(n, \"#999999\") for n in names]\n\n    axes[0, col].bar(names, bleu, color=bar_colors)\n    axes[0, col].set_ylabel(\"BLEU\")\n    axes[0, col].set_title(f\"BLEU - {model_label}\")\n    axes[0, col].tick_params(axis=\"x\", rotation=30)\n\n    axes[1, col].bar(names, rouge, color=bar_colors)\n    axes[1, col].set_ylabel(\"ROUGE-L\")\n    axes[1, col].set_title(f\"ROUGE-L - {model_label}\")\n    axes[1, col].tick_params(axis=\"x\", rotation=30)\n\nplt.tight_layout()\nplt.savefig(\"../results/figures/sequential/final_metrics_comparison.png\", dpi=150)\nplt.show()\n",
+  "stdout_text": "",
+  "outputs_raw": []
+}

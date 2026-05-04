@@ -1,0 +1,8 @@
+{
+  "cell_index": 8,
+  "cell_id": "bec078e3",
+  "execution_count": null,
+  "source": "print(len(train_loader), TOTAL_STEPS)  ",
+  "stdout_text": "",
+  "outputs_raw": []
+}

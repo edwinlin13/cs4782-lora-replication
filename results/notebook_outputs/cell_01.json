@@ -1,0 +1,16 @@
+{
+  "cell_index": 1,
+  "cell_id": "a15519db",
+  "execution_count": 2,
+  "source": "from transformers import GPT2LMHeadModel\nfrom lora import inject_lora\nfrom sequential_lora import inject_sequential_lora\nfrom sequential_train import run_sequential_experiment, FixedStepTrigger, PlateauTrigger\nfrom data import get_dataloaders, load_e2e_dataset\nfrom train import run_experiment\n\ndevice = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\nprint(f\"Using device: {device}\")",
+  "stdout_text": "Using device: cuda\n",
+  "outputs_raw": [
+    {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+        "Using device: cuda\n"
+      ]
+    }
+  ]
+}

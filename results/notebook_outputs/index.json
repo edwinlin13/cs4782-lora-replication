@@ -1,0 +1,114 @@
+[
+  {
+    "cell_index": 0,
+    "cell_id": "f57edd66",
+    "execution_count": 1,
+    "source_preview": "# uncomment these lines on a fresh Colab runtime:",
+    "stdout_lines": 9,
+    "file": "cell_00.json"
+  },
+  {
+    "cell_index": 1,
+    "cell_id": "a15519db",
+    "execution_count": 2,
+    "source_preview": "from transformers import GPT2LMHeadModel",
+    "stdout_lines": 1,
+    "file": "cell_01.json"
+  },
+  {
+    "cell_index": 2,
+    "cell_id": "b905b067",
+    "execution_count": 3,
+    "source_preview": "train_loader, val_loader, test_loader, tokenizer = get_dataloaders(batch_size=8, max_length=256)",
+    "stdout_lines": 6,
+    "file": "cell_02.json"
+  },
+  {
+    "cell_index": 3,
+    "cell_id": "acb5dfba",
+    "execution_count": 4,
+    "source_preview": "# ---- preflight ----",
+    "stdout_lines": 89,
+    "file": "cell_03.json"
+  },
+  {
+    "cell_index": 4,
+    "cell_id": "3dfd2411",
+    "execution_count": 5,
+    "source_preview": "# 4 stages x rank 2 each = final rank 8. boundaries at 1/4, 2/4, 3/4 of training.",
+    "stdout_lines": 510,
+    "file": "cell_04.json"
+  },
+  {
+    "cell_index": 5,
+    "cell_id": "52b9b83b",
+    "execution_count": 6,
+    "source_preview": "# emergent final rank, capped at 8. patience=3 evals, delta=0.001, eval every 200 steps.",
+    "stdout_lines": 371,
+    "file": "cell_05.json"
+  },
+  {
+    "cell_index": 6,
+    "cell_id": "ca152e5f",
+    "execution_count": 7,
+    "source_preview": "# ---- gpt2-medium rank-8 comparison (single seed) ----",
+    "stdout_lines": 354,
+    "file": "cell_06.json"
+  },
+  {
+    "cell_index": 7,
+    "cell_id": "f83a15a9",
+    "execution_count": null,
+    "source_preview": "# ---- gpt2-medium plateau-trigger comparison (single seed) ----",
+    "stdout_lines": 0,
+    "file": "cell_07.json"
+  },
+  {
+    "cell_index": 8,
+    "cell_id": "bec078e3",
+    "execution_count": null,
+    "source_preview": "print(len(train_loader), TOTAL_STEPS)  ",
+    "stdout_lines": 0,
+    "file": "cell_08.json"
+  },
+  {
+    "cell_index": 9,
+    "cell_id": "6ab3445d",
+    "execution_count": null,
+    "source_preview": "def _load(path):",
+    "stdout_lines": 0,
+    "file": "cell_09.json"
+  },
+  {
+    "cell_index": 10,
+    "cell_id": "43db3cee",
+    "execution_count": null,
+    "source_preview": "rows = []",
+    "stdout_lines": 0,
+    "file": "cell_10.json"
+  },
+  {
+    "cell_index": 11,
+    "cell_id": "4c9e9c74",
+    "execution_count": null,
+    "source_preview": "# split into two panels: small-model on the left, medium-model on the right.",
+    "stdout_lines": 0,
+    "file": "cell_11.json"
+  },
+  {
+    "cell_index": 12,
+    "cell_id": "563a97ad",
+    "execution_count": null,
+    "source_preview": "# bar charts: 2 metrics x 2 model sizes = 4 panels.",
+    "stdout_lines": 0,
+    "file": "cell_12.json"
+  },
+  {
+    "cell_index": 13,
+    "cell_id": "0122c8b6",
+    "execution_count": null,
+    "source_preview": "# emergent final rank for plateau conditions, both model sizes",
+    "stdout_lines": 0,
+    "file": "cell_13.json"
+  }
+]
