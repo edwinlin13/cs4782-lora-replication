@@ -278,6 +278,8 @@ def run_sequential_experiment(
     global_step = 0
     total_steps_planned = num_epochs * len(train_loader)
     should_stop = False
+    abort_reason = None  # set on early termination so the JSON status reflects it
+    PROGRESS_EVERY = 200  # how often to print mid-epoch train-loss progress
 
     print(f"[{experiment_name}] starting, alpha_old={alpha_old}, "
           f"per_stage_rank={per_stage_rank}, total_planned_steps={total_steps_planned}")
@@ -305,6 +307,7 @@ def run_sequential_experiment(
             if not torch.isfinite(loss):
                 print(f"!!! non-finite loss ({loss.item()}) at step {global_step}, aborting run", flush=True)
                 should_stop = True
+                abort_reason = "non_finite_loss"
                 break
 
             optim_mgr.zero_grad()
@@ -316,6 +319,16 @@ def run_sequential_experiment(
             running_count += 1
             global_step += 1
 
+            # mid-epoch progress so colab logs dont go silent for 5k batches.
+            # match the existing train.py cadence (every 100ish, plus first/last)
+            if running_count == 1 or running_count % PROGRESS_EVERY == 0 or running_count == len(train_loader):
+                print(
+                    f"    [{experiment_name}] epoch {epoch+1}/{num_epochs} "
+                    f"batch {running_count}/{len(train_loader)} "
+                    f"| step {global_step} | avg train loss {running_loss / running_count:.4f}",
+                    flush=True,
+                )
+
             # ---- step-based trigger update (fixed-step) ----
             decision = trigger.update(step=global_step, current_total_rank=_total_rank(model))
             if decision.get("stage"):
@@ -324,6 +337,7 @@ def run_sequential_experiment(
                                      reason="fixed_step", val_loss=None)
             if decision.get("stop"):
                 should_stop = True
+                abort_reason = "trigger_stop"
                 break
 
             # ---- periodic validation + plateau trigger update ----
@@ -343,6 +357,7 @@ def run_sequential_experiment(
                                          reason="plateau", val_loss=val_loss)
                 if decision.get("stop"):
                     should_stop = True
+                    abort_reason = "plateau_stop"
                     break
 
         # end-of-epoch full validation (consistent w/ existing baselines for plotting)
@@ -373,9 +388,15 @@ def run_sequential_experiment(
     test_metrics = compute_metrics(generated, test_dataset_hf)
     print(f"  BLEU: {test_metrics['bleu']:.4f} | ROUGE-L: {test_metrics['rouge_l']:.4f}")
 
+    # status reflects whether we ran to completion or aborted early. helps the
+    # analyzer notice "wait this run only did 3000 steps not 26000" without
+    # having to count tuples in train_loss_log.
+    status = "complete" if abort_reason is None else f"aborted_{abort_reason}"
+
     results = {
         "experiment_name": experiment_name,
-        "status": "complete",
+        "status": status,
+        "abort_reason": abort_reason,
         "config": {
             "alpha_old": alpha_old,
             "per_stage_rank": per_stage_rank,
