@@ -1,9 +1,13 @@
 import torch
 import torch.nn as nn
 from transformers import GPT2LMHeadModel
-from sequential_lora import LoRAQVStage, LoRAQVStack
-# inject_sequential_lora, append_stage_to_model, merge_sequential_lora imports
-# come in later tasks once those functions exist
+from sequential_lora import (
+    LoRAQVStage,
+    LoRAQVStack,
+    inject_sequential_lora,
+    append_stage_to_model,
+)
+# merge_sequential_lora import comes in task 4 once that fn exists
 
 
 # we always use the same per-stage rank/alpha so scaling = 1
@@ -105,6 +109,73 @@ def test_stack_freezes_original_c_attn():
         assert not p.requires_grad
 
 
+def test_inject_sequential_lora_freezes_base_params():
+    """After injection, only LoRA stage params should be trainable."""
+    model = GPT2LMHeadModel.from_pretrained("gpt2")
+    inject_sequential_lora(model, rank=PER_STAGE_RANK, alpha=PER_STAGE_ALPHA)
+    for name, p in model.named_parameters():
+        if p.requires_grad:
+            assert "stages." in name, f"non-stage param trainable: {name}"
+
+
+def test_inject_sequential_lora_creates_one_stack_per_block():
+    """GPT-2 small has 12 transformer blocks -> 12 LoRAQVStack modules."""
+    model = GPT2LMHeadModel.from_pretrained("gpt2")
+    inject_sequential_lora(model, rank=PER_STAGE_RANK, alpha=PER_STAGE_ALPHA)
+    stack_count = sum(1 for _, m in model.named_modules() if isinstance(m, LoRAQVStack))
+    assert stack_count == 12, f"expected 12 stacks, got {stack_count}"
+
+
+def test_inject_creates_one_stage_per_stack():
+    """At injection time, each stack should have exactly one stage."""
+    model = GPT2LMHeadModel.from_pretrained("gpt2")
+    inject_sequential_lora(model, rank=PER_STAGE_RANK, alpha=PER_STAGE_ALPHA)
+    for _, m in model.named_modules():
+        if isinstance(m, LoRAQVStack):
+            assert len(m.stages) == 1
+
+
+def test_append_stage_to_model_adds_to_every_stack():
+    """append_stage_to_model adds a new stage to every LoRAQVStack."""
+    model = GPT2LMHeadModel.from_pretrained("gpt2")
+    inject_sequential_lora(model, rank=PER_STAGE_RANK, alpha=PER_STAGE_ALPHA)
+    new_stages = append_stage_to_model(model, rank=PER_STAGE_RANK, alpha=PER_STAGE_ALPHA)
+    assert len(new_stages) == 12  # one per stack
+    for _, m in model.named_modules():
+        if isinstance(m, LoRAQVStack):
+            assert len(m.stages) == 2
+
+
+def test_append_stage_returns_only_new_params():
+    """The returned stages should be the freshly-added ones (B=0 still)."""
+    model = GPT2LMHeadModel.from_pretrained("gpt2")
+    inject_sequential_lora(model, rank=PER_STAGE_RANK, alpha=PER_STAGE_ALPHA)
+    new_stages = append_stage_to_model(model, rank=PER_STAGE_RANK, alpha=PER_STAGE_ALPHA)
+    for stage in new_stages:
+        assert torch.all(stage.lora_q_B == 0)
+        assert torch.all(stage.lora_v_B == 0)
+
+
+def test_append_does_not_change_forward_output():
+    """Appending a stage to a partially-trained model must not change logits."""
+    torch.manual_seed(0)
+    model = GPT2LMHeadModel.from_pretrained("gpt2")
+    inject_sequential_lora(model, rank=PER_STAGE_RANK, alpha=PER_STAGE_ALPHA)
+    # simulate training the first stage
+    with torch.no_grad():
+        for _, m in model.named_modules():
+            if isinstance(m, LoRAQVStack):
+                m.stages[0].lora_q_B.normal_(0, 0.01)
+                m.stages[0].lora_v_B.normal_(0, 0.01)
+    x = torch.randint(0, 50257, (1, 20))
+    with torch.no_grad():
+        before = model(x).logits
+    append_stage_to_model(model, rank=PER_STAGE_RANK, alpha=PER_STAGE_ALPHA)
+    with torch.no_grad():
+        after = model(x).logits
+    assert torch.allclose(before, after, atol=1e-5)
+
+
 if __name__ == "__main__":
     test_stage_param_shapes()
     test_stage_b_initialized_to_zero()
@@ -113,3 +184,11 @@ if __name__ == "__main__":
     test_stack_two_stages_sums_contributions()
     test_stack_freezes_original_c_attn()
     print("Stack tests passed!")
+    print("Running injection tests (downloads gpt2)...")
+    test_inject_sequential_lora_freezes_base_params()
+    test_inject_sequential_lora_creates_one_stack_per_block()
+    test_inject_creates_one_stage_per_stack()
+    test_append_stage_to_model_adds_to_every_stack()
+    test_append_stage_returns_only_new_params()
+    test_append_does_not_change_forward_output()
+    print("Injection and append tests passed!")

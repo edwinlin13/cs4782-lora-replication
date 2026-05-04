@@ -81,3 +81,52 @@ class LoRAQVStack(nn.Module):
     @property
     def total_rank(self):
         return sum(stage.rank for stage in self.stages)
+
+
+def inject_sequential_lora(model, rank, alpha=None):
+    """Inject sequential LoRA stacks into GPT-2's attention layers.
+
+    Mirrors inject_lora() in lora.py but installs LoRAQVStack instead of
+    LoRAQVWrapper. Freezes everything else first. Targets attn.c_attn only,
+    same as the existing replication (Wq and Wv).
+    """
+    for p in model.parameters():
+        p.requires_grad = False
+
+    replacements = []
+    for name, module in model.named_modules():
+        if name.endswith("attn.c_attn"):
+            replacements.append((name, module))
+
+    for name, module in replacements:
+        parts = name.split(".")
+        parent = model
+        for part in parts[:-1]:
+            parent = getattr(parent, part)
+        attr_name = parts[-1]
+
+        stack = LoRAQVStack(module, rank=rank, alpha=alpha)
+        setattr(parent, attr_name, stack)
+
+
+def append_stage_to_model(model, rank, alpha=None):
+    """Append a new stage to every LoRAQVStack in the model.
+
+    Returns the list of newly-added LoRAQVStage modules (useful for the
+    optimizer manager which needs to register the new params).
+    """
+    new_stages = []
+    for _, m in model.named_modules():
+        if isinstance(m, LoRAQVStack):
+            new_stages.append(m.append_stage(rank=rank, alpha=alpha))
+    return new_stages
+
+
+def get_all_stages(model):
+    """Return a list of (stack_name, stage_idx, stage) tuples for all stacks."""
+    out = []
+    for name, m in model.named_modules():
+        if isinstance(m, LoRAQVStack):
+            for i, stage in enumerate(m.stages):
+                out.append((name, i, stage))
+    return out
