@@ -130,3 +130,42 @@ def get_all_stages(model):
             for i, stage in enumerate(m.stages):
                 out.append((name, i, stage))
     return out
+
+
+def merge_sequential_lora(model):
+    """Fold all stages of every stack back into the underlying c_attn weights.
+
+    For each stack, we sum (B_i @ A_i) * scaling across all stages and add
+    into the appropriate Q and V columns of c_attn.weight (Conv1D is transposed
+    so we use .T when adding to the weight).
+
+    After merging, the stacks are replaced by the bare c_attn — model produces
+    identical output, with zero added inference cost. Same trick as merge_lora.
+    """
+    replacements = []
+    for name, m in model.named_modules():
+        if isinstance(m, LoRAQVStack):
+            replacements.append((name, m))
+
+    for name, stack in replacements:
+        parts = name.split(".")
+        parent = model
+        for part in parts[:-1]:
+            parent = getattr(parent, part)
+        attr_name = parts[-1]
+
+        c_attn = stack.original_c_attn
+        d_head = c_attn.nf // 3
+
+        with torch.no_grad():
+            # sum (B_i @ A_i * scaling_i) for Q over all stages
+            delta_q = torch.zeros(d_head, stack.d_in, device=c_attn.weight.device)
+            delta_v = torch.zeros(d_head, stack.d_in, device=c_attn.weight.device)
+            for stage in stack.stages:
+                delta_q += (stage.lora_q_B @ stage.lora_q_A) * stage.scaling
+                delta_v += (stage.lora_v_B @ stage.lora_v_A) * stage.scaling
+            # Conv1D weight is (d_in, d_out), so transpose deltas before adding
+            c_attn.weight[:, :d_head] += delta_q.T
+            c_attn.weight[:, 2 * d_head:] += delta_v.T
+
+        setattr(parent, attr_name, c_attn)

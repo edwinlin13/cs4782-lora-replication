@@ -6,8 +6,8 @@ from sequential_lora import (
     LoRAQVStack,
     inject_sequential_lora,
     append_stage_to_model,
+    merge_sequential_lora,
 )
-# merge_sequential_lora import comes in task 4 once that fn exists
 
 
 # we always use the same per-stage rank/alpha so scaling = 1
@@ -176,6 +176,43 @@ def test_append_does_not_change_forward_output():
     assert torch.allclose(before, after, atol=1e-5)
 
 
+def test_merge_sequential_produces_same_output():
+    """After merging, model output must be identical (within fp tolerance)."""
+    torch.manual_seed(0)
+    model = GPT2LMHeadModel.from_pretrained("gpt2")
+    inject_sequential_lora(model, rank=PER_STAGE_RANK, alpha=PER_STAGE_ALPHA)
+    append_stage_to_model(model, rank=PER_STAGE_RANK, alpha=PER_STAGE_ALPHA)
+
+    # simulate training: nonzero B in both stages
+    with torch.no_grad():
+        for _, m in model.named_modules():
+            if isinstance(m, LoRAQVStack):
+                for stage in m.stages:
+                    stage.lora_q_B.normal_(0, 0.01)
+                    stage.lora_v_B.normal_(0, 0.01)
+
+    x = torch.randint(0, 50257, (1, 20))
+    with torch.no_grad():
+        before = model(x).logits
+
+    merge_sequential_lora(model)
+
+    with torch.no_grad():
+        after = model(x).logits
+    diff = (before - after).abs().max().item()
+    assert torch.allclose(before, after, atol=1e-4), f"max diff {diff}"
+
+
+def test_merge_sequential_removes_all_stacks():
+    """After merge, no LoRAQVStack should remain in the model."""
+    model = GPT2LMHeadModel.from_pretrained("gpt2")
+    inject_sequential_lora(model, rank=PER_STAGE_RANK, alpha=PER_STAGE_ALPHA)
+    append_stage_to_model(model, rank=PER_STAGE_RANK, alpha=PER_STAGE_ALPHA)
+    merge_sequential_lora(model)
+    stack_count = sum(1 for _, m in model.named_modules() if isinstance(m, LoRAQVStack))
+    assert stack_count == 0
+
+
 if __name__ == "__main__":
     test_stage_param_shapes()
     test_stage_b_initialized_to_zero()
@@ -192,3 +229,7 @@ if __name__ == "__main__":
     test_append_stage_returns_only_new_params()
     test_append_does_not_change_forward_output()
     print("Injection and append tests passed!")
+    print("Running merge tests...")
+    test_merge_sequential_produces_same_output()
+    test_merge_sequential_removes_all_stacks()
+    print("Merge tests passed!")
