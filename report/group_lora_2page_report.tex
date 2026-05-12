@@ -1,4 +1,4 @@
-\documentclass[11pt,twocolumn]{article}
+\documentclass[11pt]{article}
 \usepackage[margin=0.58in]{geometry}
 \usepackage{graphicx}
 \usepackage{amsmath}
@@ -11,44 +11,39 @@
 \usepackage{titlesec}
 \usepackage{xcolor}
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{3pt}
-\setlength{\columnsep}{0.22in}
+\setlength{\parskip}{2pt}
 \setlist[itemize]{leftmargin=*, topsep=1pt, itemsep=1pt, parsep=0pt}
-\titlespacing*{\section}{0pt}{5pt}{2pt}
-\titleformat{\section}{\large\bfseries}{}{0pt}{}
-\captionsetup{font=small, labelfont=bf}
+\titlespacing*{\section}{0pt}{4pt}{1pt}
+\titleformat{\section}{\normalsize\bfseries}{}{0pt}{}
+\captionsetup{font=small, labelfont=bf, skip=2pt}
 \pagenumbering{gobble}
 
 \begin{document}
 
-\twocolumn[
 \begin{center}
-{\Large \textbf{Re-implementing LoRA for Parameter-Efficient GPT-2 Adaptation}}\\
+{\large \textbf{Re-implementing LoRA for Parameter-Efficient GPT-2 Adaptation}}\\
 Edwin Lin, Thomas Peng, Henry Ji \hfill CS 4782 Final Project
 \end{center}
-\vspace{2pt}
-]
+\vspace{-6pt}
 
 \section{1. Introduction}
-Our project reproduces the core claim of \textit{LoRA: Low-Rank Adaptation of Large Language Models} by Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. The paper addresses a practical bottleneck in modern NLP: full fine-tuning requires updating, storing, and serving a separate copy of every model parameter for each downstream task. This is manageable for GPT-2-scale models but becomes expensive for larger Transformer language models.
+Our project studies \textit{LoRA: Low-Rank Adaptation of Large Language Models} by Hu et al. The problem is that full fine-tuning updates every weight in a language model, so each new task needs a large task-specific model copy. LoRA asks whether most of that update can be replaced by a much smaller learned correction.
 
-LoRA's main idea is to freeze the pretrained weights and learn only a low-rank update to selected linear projections. Instead of directly training a dense update $\Delta W \in \mathbb{R}^{d \times k}$, LoRA represents it as $\Delta W = BA$, where $B \in \mathbb{R}^{d \times r}$ and $A \in \mathbb{R}^{r \times k}$ with small rank $r$. The adapted layer computes
-\[
-h = W_0x + \frac{\alpha}{r}BAx,
-\]
-so the base model remains unchanged and only the low-rank matrices are trained. The paper's contribution is both practical and empirical: LoRA greatly reduces trainable parameters and optimizer state, introduces no additional inference latency after merging, and achieves performance competitive with full fine-tuning across RoBERTa, DeBERTa, GPT-2, and GPT-3 experiments.
+The method freezes the original model and trains two small matrices, $A$ and $B$, whose product forms a low-rank update. Low-rank means the update is forced to use a small number of directions, controlled by rank $r$, rather than changing the whole weight matrix freely. The paper's main contribution is showing that this small update can match full fine-tuning on several NLP tasks while using far fewer trainable parameters.
 
 \section{2. Chosen Result}
-We chose to reproduce the GPT-2 result on the E2E NLG Challenge from Table 3 of the LoRA paper. This table is central to the paper because it tests whether LoRA's parameter-efficiency claim holds for natural language generation, not only classification. In the original result, GPT-2 Medium full fine-tuning trains 354.92M parameters and reports BLEU 68.2 and ROUGE-L 71.0, while GPT-2 Medium with LoRA trains only 0.35M parameters and reports BLEU $70.4 \pm 0.1$ and ROUGE-L $71.8 \pm 0.1$. Thus, Table 3 directly supports the claim that low-rank adaptation can match or exceed full fine-tuning while updating orders of magnitude fewer parameters.
+We reproduced the GPT-2 E2E NLG result from Table 3. This result matters because it tests LoRA on generation, where the model must produce fluent restaurant descriptions from structured slot-value inputs. In the paper, GPT-2 Medium full fine-tuning trains 354.92M parameters and reports BLEU 68.2 and ROUGE-L 71.0. GPT-2 Medium with LoRA trains 0.35M parameters and reports BLEU $70.4 \pm 0.1$ and ROUGE-L $71.8 \pm 0.1$.
 
-We reproduced the same type of comparison at a smaller scale: GPT-2 Small full fine-tuning versus LoRA ranks $r \in \{2,4,8\}$ on E2E. We focused on BLEU, ROUGE-L, and trainable parameter count because these align with the original table and clearly measure the tradeoff between generation quality and adaptation cost.
+We reproduced the same comparison at smaller scale because we initially under-estimated the compute needed to exactly replicate the paper: GPT-2 Small full fine-tuning versus LoRA ranks $r \in \{2,4,8\}$. We also added a sequential LoRA extension to test whether gradually growing the adapter rank could improve training stability or parameter efficiency.
 
 \section{3. Methodology}
-\textbf{Model and task.} We used GPT-2 Small from HuggingFace Transformers as an autoregressive language model. The downstream task was E2E NLG, a restaurant-domain data-to-text benchmark where the input is a set of slot-value pairs and the output is a natural-language description. Each example was formatted as a prompt containing the structured meaning representation followed by the target reference text. The tokenizer was GPT-2's tokenizer with padding handled through the EOS token, and examples were truncated/padded to a maximum length of 256.
+\textbf{Model and task.} We used GPT-2 Small as an autoregressive language model, meaning it predicts the next token from previous tokens. The task was E2E NLG, a restaurant data-to-text benchmark. Each input is a meaning representation such as restaurant name, food type, and price range. The target is a human-written sentence or short paragraph. We formatted each example as structured input followed by the target text, used the GPT-2 tokenizer, padded with the end-of-sequence token, and capped examples at 256 tokens.
 
-\textbf{LoRA implementation.} We implemented LoRA from scratch in PyTorch rather than using PEFT. GPT-2 stores query, key, and value projections in a fused \texttt{c\_attn} Conv1D module whose output is split into $Q|K|V$. Our wrapper preserves the original frozen projection and adds trainable low-rank updates only to the query and value slices, matching the paper's common setup of adapting $W_q$ and $W_v$. For each Transformer block, the base GPT-2 parameters are frozen after LoRA injection; only the LoRA matrices require gradients. We used $\alpha=r$, making the LoRA scaling factor $\alpha/r=1$.
+\textbf{Base LoRA implementation.} We implemented LoRA in PyTorch. GPT-2 stores query, key, and value attention projections together in a fused c\_attn module, then splits the output into Q, K, and V. Our wrapper keeps the original projection frozen and adds trainable low-rank updates only to the query and value parts. This follows the paper's common setting of adapting Wq and Wv, while keeping the base model fixed. We used $\alpha=r$, so the LoRA scale was 1.
 
-\textbf{Training and evaluation.} We ran one full fine-tuning baseline and three LoRA runs with ranks 2, 4, and 8. All runs used 5 epochs, batch size 8, AdamW-style weight decay 0.01, learning rate $2\times10^{-4}$, and 500 warmup steps in Google Colab. We generated outputs on the test split and computed BLEU with NLTK and ROUGE-L with \texttt{rouge-score}. We also wrote unit tests for LoRA injection, freezing behavior, output shape preservation, and merge behavior to catch implementation errors in the GPT-2 wrapper.
+\textbf{Modifications from the paper.} We made four main changes. First, we used GPT-2 Small instead of GPT-2 Medium or Large because we under-estimated the resources needed for exact reproduction. Second, we ran one seed per setting rather than averaging over seeds. Third, we reported BLEU and ROUGE-L only. BLEU measures n-gram overlap with references, while ROUGE-L measures longest shared subsequences. Fourth, we added sequential LoRA. Standard LoRA trains one fixed-rank adapter for the whole run. Sequential LoRA starts with a smaller adapter, then appends new rank-2 adapter stages during training. This lets the model begin with a simple correction and add capacity later. We tested fixed stage boundaries and validation-plateau triggers, and varied whether old stages were frozen, weakly updated, or fully updated.
+
+\textbf{Training and checks.} All runs used 5 epochs, batch size 8, weight decay 0.01, learning rate $2\times10^{-4}$, and 500 warmup steps in Google Colab. We evaluated generated outputs on the test split. We wrote tests for LoRA injection, freezing behavior, output shape preservation, stage growth, plateau triggering, and merge behavior, with AI tools used to help draft some test cases. These checks mattered because a mistaken freezing rule could silently turn the experiment into full fine-tuning.
 
 \begin{table}[h]
 \centering
@@ -63,33 +58,48 @@ LoRA $r=4$ & 147.5K & 0.1184 & 64.34 & 67.87 \\
 LoRA $r=8$ & 294.9K & 0.2364 & \textbf{65.21} & 67.23 \\
 \bottomrule
 \end{tabular}
-\caption{Our GPT-2 Small E2E results. BLEU and ROUGE-L are shown on a 0--100 scale for comparison with the paper.}
+\caption{GPT-2 Small E2E results. BLEU and ROUGE-L use a 0--100 scale.}
 \end{table}
 
-\begin{figure}[h]
-\centering
-\includegraphics[width=0.93\linewidth]{../results/figures/metrics_comparison.png}
-\caption{Zoomed comparison of BLEU and ROUGE-L across full fine-tuning and LoRA ranks.}
-\end{figure}
-
 \section{4. Results and Analysis}
-Our results support the qualitative conclusion of the LoRA paper: low-rank adaptation achieved nearly the same generation quality as full fine-tuning while training far fewer parameters. The strongest parameter-efficiency comparison is LoRA $r=4$, which trained only 147,456 parameters, or 0.1184\% of the model, while reaching BLEU 64.34 and ROUGE-L 67.87. LoRA $r=8$ trained 294,912 parameters, or 0.2364\%, and slightly exceeded full fine-tuning on BLEU by 0.45 points. Full fine-tuning remained best on ROUGE-L, with 68.24 versus LoRA $r=4$ at 67.87 and LoRA $r=8$ at 67.23.
+The main result matches the paper's pattern. LoRA reached nearly the same generation quality as full fine-tuning while updating far fewer parameters. LoRA $r=4$ trained 147,456 parameters, only 0.1184\% of the model, and reached BLEU 64.34 and ROUGE-L 67.87. LoRA $r=8$ trained 294,912 parameters, 0.2364\%, and slightly exceeded full fine-tuning on BLEU by 0.45 points. Full fine-tuning remained best on ROUGE-L, with 68.24 versus 67.23 for LoRA $r=8$.
 
-We do not interpret the LoRA $r=8$ BLEU result as proof that LoRA is generally better than full fine-tuning. The margin is small and likely within run-to-run variation. It is plausible because BLEU rewards exact n-gram overlap; a constrained LoRA model may produce more template-like generations that score well under BLEU, while full fine-tuning can change the model more broadly and may need a separately tuned learning rate. The more robust takeaway is that all LoRA variants were close to full fine-tuning despite training between roughly 400x and 1,688x fewer parameters.
+We do not treat the LoRA $r=8$ BLEU score as proof that LoRA is better than full fine-tuning. The gap is small and we only ran one seed. A more careful claim is that LoRA preserved most of the quality while reducing the trainable parameter count by roughly 400x to 1,688x. This is the core tradeoff from the paper.
 
-The main discrepancy from the original paper is absolute score and model scale. Hu et al. used GPT-2 Medium and Large and reported means over multiple random seeds; we used GPT-2 Small and a single run per configuration because of compute limits. We also evaluated only BLEU and ROUGE-L, not NIST, METEOR, or CIDEr. These choices make our experiment a reasonable small-scale re-implementation rather than an exact reproduction. Still, the pattern matches Table 3: adapting only a small low-rank subspace of attention projections is enough to recover most of full fine-tuning's downstream performance.
+\begin{table}[h]
+\centering
+\scriptsize
+\begin{tabular}{lrrr}
+\toprule
+Extension & Final rank & BLEU & ROUGE-L \\
+\midrule
+Sequential fixed, frozen old & 8 & 64.21 & 67.65 \\
+Sequential fixed, hybrid old & 8 & 64.37 & 67.02 \\
+Sequential fixed, unfrozen old & 8 & \textbf{64.56} & 67.37 \\
+Sequential plateau, frozen old & 8 & 63.24 & 67.73 \\
+Sequential plateau, hybrid old & 8 & 63.45 & \textbf{67.77} \\
+Sequential plateau, unfrozen old & 8 & 62.79 & 67.08 \\
+\bottomrule
+\end{tabular}
+\caption{Sequential LoRA extension. Each stage added rank 2 until final rank 8.}
+\end{table}
+
+The sequential extension was useful but did not clearly beat standard LoRA $r=8$. Fixed-stage growth performed better than plateau-triggered growth on BLEU. The best sequential BLEU was 64.56, below standard LoRA $r=8$ at 65.21, while the best sequential ROUGE-L was 67.77, above standard LoRA $r=8$ at 67.23 but below full fine-tuning at 68.24. This suggests that rank growth is sensitive to scheduling. Freezing old stages saves active optimizer work, but it may also prevent earlier low-rank directions from adjusting after new stages are added.
+
+The biggest limitation is that our reproduction is smaller than the paper because the exact setup required more compute than we initially estimated. We used GPT-2 Small, one seed, and fewer metrics. Still, the investigation was meaningful because it tested the main claim, measured the parameter-quality tradeoff, and explored when extra rank should be introduced during training.
 
 \section{5. Reflections}
-The main implementation lesson was that LoRA is conceptually simple but easy to get subtly wrong inside real model code. GPT-2's fused \texttt{c\_attn} layer required special handling because query, key, and value are not separate PyTorch \texttt{Linear} modules. Freezing behavior also needed explicit testing; otherwise, a run can look like LoRA while accidentally training base parameters.
+The main implementation lesson was that LoRA is simple mathematically but delicate in real model code. GPT-2's c\_attn layer required special handling because Q, K, and V are packed together instead of being separate linear layers. Freezing behavior also needed explicit testing. Without it, a run could appear to use LoRA while accidentally training base parameters.
 
-The experimental lesson was that parameter-efficient fine-tuning should be evaluated as a tradeoff, not only by the best metric value. Full fine-tuning had much lower training loss, but LoRA produced similar test BLEU/ROUGE-L with a tiny trainable footprint. Given more time, we would run at least three random seeds, tune learning rates separately for full fine-tuning and each LoRA rank, report confidence intervals, and add METEOR/CIDEr to better match Table 3. We would also test LoRA on MLP projections and compare against adapters or prefix tuning to broaden the reproduction beyond full fine-tuning versus LoRA.
+The sequential extension taught us that adding capacity over time is not automatically better. We expected gradual rank growth to work like a curriculum, where the model first learns a simple update and later adds detail. In practice, the fixed schedule was competitive, but the plateau schedule did not improve BLEU. One likely reason is that validation loss plateaus are noisy, so a trigger can add rank at a time that is not actually useful. Another possibility is that old rank directions need to keep adapting after new stages appear.
+
+Given more time, we would run at least three seeds, tune learning rates separately for full fine-tuning, base LoRA, and sequential LoRA, and report confidence intervals. We would also add NIST, METEOR, and CIDEr because the LoRA paper reports them in Table 3 alongside BLEU and ROUGE-L. NIST and METEOR are additional text-overlap metrics, while CIDEr measures agreement with reference descriptions. We would also inspect sample generations for factual slot errors and test whether sequential LoRA helps more on larger GPT-2 models or on MLP projections.
 
 \section{6. References}
-\small
-Hu, E. J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., and Chen, W. (2021). \textit{LoRA: Low-Rank Adaptation of Large Language Models}. arXiv:2106.09685.\\
-Novikova, J., Dusek, O., and Rieser, V. (2017). \textit{The E2E Dataset: New Challenges for End-to-End Generation}. arXiv:1706.09254.\\
-Radford, A. et al. (2019). \textit{Language Models are Unsupervised Multitask Learners}. OpenAI.\\
-Wolf, T. et al. (2020). \textit{Transformers: State-of-the-Art Natural Language Processing}. EMNLP.\\
-Bird, S., Klein, E., and Loper, E. (2009). \textit{Natural Language Processing with Python}. O'Reilly. Lin, C.-Y. (2004). ROUGE: A package for automatic evaluation of summaries.
+\footnotesize
+Hu, E. J. et al. (2021). \href{https://arxiv.org/abs/2106.09685}{\textit{LoRA: Low-Rank Adaptation of Large Language Models}}. arXiv:2106.09685.\\
+Novikova, J., Dusek, O., and Rieser, V. (2017). \href{https://arxiv.org/abs/1706.09254}{\textit{The E2E Dataset: New Challenges for End-to-End Generation}}. arXiv:1706.09254.\\
+Radford, A. et al. (2019). \href{https://cdn.openai.com/better-language-models/language-models.pdf}{\textit{Language Models are Unsupervised Multitask Learners}}. OpenAI.\\
+Wolf, T. et al. (2020). \href{https://aclanthology.org/2020.emnlp-demos.6/}{\textit{Transformers: State-of-the-Art Natural Language Processing}}. EMNLP.
 
 \end{document}
