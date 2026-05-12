@@ -1,0 +1,48 @@
+{
+  "experiment_name": "seq_medium_plateau_hybrid",
+  "model": "gpt2-medium",
+  "status": "complete",
+  "abort_reason": "rank_cap",
+  "config": {
+    "alpha_old": 0.1,
+    "per_stage_rank": 2,
+    "per_stage_alpha": 2,
+    "num_epochs": 5,
+    "learning_rate": 0.0002,
+    "weight_decay": 0.01,
+    "warmup_steps": 500,
+    "eval_every": 200,
+    "seed": 42
+  },
+  "params": {
+    "trainable": 196608,
+    "total": 355611648,
+    "percentage": 0.0553
+  },
+  "final_total_rank": 8,
+  "stage_events": [
+    {
+      "step": 6000,
+      "reason": "plateau",
+      "val_loss_at_transition": 0.9828,
+      "new_total_rank": 4
+    },
+    {
+      "step": 7200,
+      "reason": "plateau",
+      "val_loss_at_transition": 0.9718,
+      "new_total_rank": 6
+    },
+    {
+      "step": 9200,
+      "reason": "plateau",
+      "val_loss_at_transition": 0.9628,
+      "new_total_rank": 8
+    }
+  ],
+  "test_metrics": {
+    "bleu": 0.6508,
+    "rouge_l": 0.6818
+  },
+  "extraction_note": "Summary metrics extracted from the completed Colab notebook in code/sequential_experiment.ipynb."
+}

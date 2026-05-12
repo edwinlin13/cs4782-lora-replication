@@ -1,24 +1,16 @@
 {
   "cell_index": 0,
   "cell_id": "f57edd66",
-  "execution_count": 1,
-  "source": "# uncomment these lines on a fresh Colab runtime:\n!pip install -q torch transformers nltk rouge-score matplotlib\n!cp -r /content/cs4782-lora-replication/results /content/results_backup\n!rm -rf /content/cs4782-lora-replication \n!git clone https://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@github.com/edwinlin13/cs4782-lora-replication cs4782-lora-replication\n%cd cs4782-lora-replication/code\n\nimport sys, os, json\nsys.path.insert(0, \".\")\nimport matplotlib.pyplot as plt\nimport torch\nprint(f\"torch={torch.__version__}, cuda available={torch.cuda.is_available()}\")",
-  "stdout_text": "Cloning into 'cs4782-lora-replication'...\nremote: Enumerating objects: 169, done.\u001b[K\nremote: Counting objects: 100% (169/169), done.\u001b[K\nremote: Compressing objects: 100% (97/97), done.\u001b[K\nremote: Total 169 (delta 82), reused 153 (delta 66), pack-reused 0 (from 0)\u001b[K\nReceiving objects: 100% (169/169), 357.79 KiB | 23.85 MiB/s, done.\nResolving deltas: 100% (82/82), done.\n/content/cs4782-lora-replication/code\ntorch=2.10.0+cu128, cuda available=True\n",
-  "outputs_raw": [
+  "execution_count": null,
+  "source": "# uncomment these lines on a fresh Colab runtime:\n!pip install -q torch transformers nltk rouge-score matplotlib\n!cp -r /content/cs4782-lora-replication/results /content/results_backup\n!rm -rf /content/cs4782-lora-replication\n!git clone https://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@github.com/edwinlin13/cs4782-lora-replication cs4782-lora-replication\n%cd cs4782-lora-replication/code\n\nimport sys, os, json\nsys.path.insert(0, \".\")\nimport matplotlib.pyplot as plt\nimport torch\nprint(f\"torch={torch.__version__}, cuda available={torch.cuda.is_available()}\")",
+  "stdout_text": "  Preparing metadata (setup.py) ... \u001b[?25l\u001b[?25hdone\n  Building wheel for rouge-score (setup.py) ... \u001b[?25l\u001b[?25hdone\ncp: cannot stat '/content/cs4782-lora-replication/results': No such file or directory\nCloning into 'cs4782-lora-replication'...\nremote: Enumerating objects: 208, done.\u001b[K\nremote: Counting objects: 100% (208/208), done.\u001b[K\nremote: Compressing objects: 100% (128/128), done.\u001b[K\nremote: Total 208 (delta 96), reused 186 (delta 74), pack-reused 0 (from 0)\u001b[K\nReceiving objects: 100% (208/208), 733.38 KiB | 38.60 MiB/s, done.\nResolving deltas: 100% (96/96), done.\n/content/cs4782-lora-replication/code\ntorch=2.10.0+cu128, cuda available=True\n",
+  "display_outputs": 0,
+  "errors": [],
+  "outputs": [
     {
-      "name": "stdout",
       "output_type": "stream",
-      "text": [
-        "Cloning into 'cs4782-lora-replication'...\n",
-        "remote: Enumerating objects: 169, done.\u001b[K\n",
-        "remote: Counting objects: 100% (169/169), done.\u001b[K\n",
-        "remote: Compressing objects: 100% (97/97), done.\u001b[K\n",
-        "remote: Total 169 (delta 82), reused 153 (delta 66), pack-reused 0 (from 0)\u001b[K\n",
-        "Receiving objects: 100% (169/169), 357.79 KiB | 23.85 MiB/s, done.\n",
-        "Resolving deltas: 100% (82/82), done.\n",
-        "/content/cs4782-lora-replication/code\n",
-        "torch=2.10.0+cu128, cuda available=True\n"
-      ]
+      "name": "stdout",
+      "text": "  Preparing metadata (setup.py) ... \u001b[?25l\u001b[?25hdone\n  Building wheel for rouge-score (setup.py) ... \u001b[?25l\u001b[?25hdone\ncp: cannot stat '/content/cs4782-lora-replication/results': No such file or directory\nCloning into 'cs4782-lora-replication'...\nremote: Enumerating objects: 208, done.\u001b[K\nremote: Counting objects: 100% (208/208), done.\u001b[K\nremote: Compressing objects: 100% (128/128), done.\u001b[K\nremote: Total 208 (delta 96), reused 186 (delta 74), pack-reused 0 (from 0)\u001b[K\nReceiving objects: 100% (208/208), 733.38 KiB | 38.60 MiB/s, done.\nResolving deltas: 100% (96/96), done.\n/content/cs4782-lora-replication/code\ntorch=2.10.0+cu128, cuda available=True\n"
     }
   ]
 }

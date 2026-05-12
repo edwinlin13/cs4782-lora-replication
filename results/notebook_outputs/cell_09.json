@@ -1,8 +1,10 @@
 {
   "cell_index": 9,
-  "cell_id": "6ab3445d",
+  "cell_id": "bec078e3",
   "execution_count": null,
-  "source": "def _load(path):\n    if not os.path.exists(path):\n        return None\n    with open(path) as f:\n        return json.load(f)\n\n# all 15 possible result files. missing ones (e.g. medium not yet run) are\n# silently skipped so this cell works even if not everything has finished.\n_paths = {\n    \"lora_r2\":                    \"../results/metrics/lora_r2.json\",\n    \"lora_r8\":                    \"../results/metrics/lora_r8.json\",\n    \"seq_fixed_frozen\":           \"../results/metrics/sequential/seq_fixed_frozen.json\",\n    \"seq_fixed_hybrid\":           \"../results/metrics/sequential/seq_fixed_hybrid.json\",\n    \"seq_fixed_unfrozen\":         \"../results/metrics/sequential/seq_fixed_unfrozen.json\",\n    \"seq_plateau_frozen\":         \"../results/metrics/sequential/seq_plateau_frozen.json\",\n    \"seq_plateau_hybrid\":         \"../results/metrics/sequential/seq_plateau_hybrid.json\",\n    \"seq_plateau_unfrozen\":       \"../results/metrics/sequential/seq_plateau_unfrozen.json\",\n    \"lora_medium_r8\":             \"../results/metrics/lora_medium_r8.json\",\n    \"seq_medium_fixed_frozen\":    \"../results/metrics/sequential/seq_medium_fixed_frozen.json\",\n    \"seq_medium_fixed_hybrid\":    \"../results/metrics/sequential/seq_medium_fixed_hybrid.json\",\n    \"seq_medium_fixed_unfrozen\":  \"../results/metrics/sequential/seq_medium_fixed_unfrozen.json\",\n    \"seq_medium_plateau_frozen\":  \"../results/metrics/sequential/seq_medium_plateau_frozen.json\",\n    \"seq_medium_plateau_hybrid\":  \"../results/metrics/sequential/seq_medium_plateau_hybrid.json\",\n    \"seq_medium_plateau_unfrozen\":\"../results/metrics/sequential/seq_medium_plateau_unfrozen.json\",\n}\n\nresults = {}\nfor name, path in _paths.items():\n    r = _load(path)\n    if r is not None:\n        results[name] = r\n    else:\n        print(f\"  [missing] {name}\")\n\nprint(f\"\\nloaded {len(results)} / {len(_paths)} result files\")\nfor k, v in results.items():\n    print(f\"  {k}: BLEU={v['test_metrics']['bleu']:.4f}  ROUGE-L={v['test_metrics']['rouge_l']:.4f}\")\n",
+  "source": "print(len(train_loader), TOTAL_STEPS)",
   "stdout_text": "",
-  "outputs_raw": []
+  "display_outputs": 0,
+  "errors": [],
+  "outputs": []
 }

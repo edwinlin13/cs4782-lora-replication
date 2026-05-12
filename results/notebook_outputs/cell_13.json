@@ -1,8 +1,20 @@
 {
   "cell_index": 13,
-  "cell_id": "0122c8b6",
+  "cell_id": "563a97ad",
   "execution_count": null,
-  "source": "# emergent final rank for plateau conditions, both model sizes\nsmall_plateau = [\"seq_plateau_frozen\", \"seq_plateau_hybrid\", \"seq_plateau_unfrozen\"]\nmedium_plateau = [\"seq_medium_plateau_frozen\", \"seq_medium_plateau_hybrid\", \"seq_medium_plateau_unfrozen\"]\n\nfig, axes = plt.subplots(1, 2, figsize=(14, 5))\nfor ax, label, names in [(axes[0], \"gpt2-small\", small_plateau),\n                         (axes[1], \"gpt2-medium\", medium_plateau)]:\n    available = [n for n in names if n in results]\n    if not available:\n        ax.set_title(f\"{label}: (no data yet)\")\n        ax.text(0.5, 0.5, \"no data\", ha=\"center\", va=\"center\", transform=ax.transAxes)\n        continue\n    ranks = [results[n][\"final_total_rank\"] for n in available]\n    ax.bar(available, ranks, color=[colors.get(n, \"#999999\") for n in available])\n    ax.set_ylabel(\"Emergent Final Rank (cap=8)\")\n    ax.set_title(f\"Plateau Stopping: Emergent Rank - {label}\")\n    ax.axhline(8, color=\"black\", linestyle=\"--\", alpha=0.3, label=\"rank cap\")\n    ax.tick_params(axis=\"x\", rotation=20)\n    ax.legend()\n\nplt.tight_layout()\nplt.savefig(\"../results/figures/sequential/emergent_ranks.png\", dpi=150)\nplt.show()\n\n# per-stage val loss across all sequential conditions\nprint(f\"\\n{'Condition':<32} {'Boundary step':>14} {'Val loss at trans':>18} {'New rank':>10}\")\nprint(\"-\" * 80)\nfor name in [\"seq_fixed_frozen\", \"seq_fixed_hybrid\", \"seq_fixed_unfrozen\",\n             \"seq_plateau_frozen\", \"seq_plateau_hybrid\", \"seq_plateau_unfrozen\",\n             \"seq_medium_fixed_frozen\", \"seq_medium_fixed_hybrid\", \"seq_medium_fixed_unfrozen\",\n             \"seq_medium_plateau_frozen\", \"seq_medium_plateau_hybrid\", \"seq_medium_plateau_unfrozen\"]:\n    if name not in results:\n        continue\n    for ev in results[name].get(\"stage_events\", []):\n        vl = ev.get(\"val_loss_at_transition\")\n        vl_str = f\"{vl:.4f}\" if vl is not None else \"-\"\n        print(f\"{name:<32} {ev['step']:>14} {vl_str:>18} {ev['new_total_rank']:>10}\")\n    print()\n",
+  "source": "# bar charts: 2 metrics x 2 model sizes = 4 panels.\nfig, axes = plt.subplots(2, 2, figsize=(16, 10))\n\nsmall_rows = [r for r in rows if r[\"model\"] == \"gpt2-small\"]\nmedium_rows = [r for r in rows if r[\"model\"] == \"gpt2-medium\"]\n\nfor col, (model_label, mr) in enumerate([(\"gpt2-small\", small_rows), (\"gpt2-medium\", medium_rows)]):\n    if not mr:\n        for row_i in (0, 1):\n            axes[row_i, col].set_title(f\"{model_label}: (no data yet)\")\n            axes[row_i, col].text(0.5, 0.5, \"no data\", ha=\"center\", va=\"center\", transform=axes[row_i, col].transAxes)\n        continue\n    names = [r[\"name\"] for r in mr]\n    bleu = [r[\"bleu\"] for r in mr]\n    rouge = [r[\"rouge_l\"] for r in mr]\n    bar_colors = [colors.get(n, \"#999999\") for n in names]\n\n    axes[0, col].bar(names, bleu, color=bar_colors)\n    axes[0, col].set_ylabel(\"BLEU\")\n    axes[0, col].set_title(f\"BLEU - {model_label}\")\n    axes[0, col].tick_params(axis=\"x\", rotation=30)\n\n    axes[1, col].bar(names, rouge, color=bar_colors)\n    axes[1, col].set_ylabel(\"ROUGE-L\")\n    axes[1, col].set_title(f\"ROUGE-L - {model_label}\")\n    axes[1, col].tick_params(axis=\"x\", rotation=30)\n\nplt.tight_layout()\nplt.savefig(\"../results/figures/sequential/final_metrics_comparison.png\", dpi=150)\nplt.show()\n",
   "stdout_text": "",
-  "outputs_raw": []
+  "display_outputs": 1,
+  "errors": [],
+  "outputs": [
+    {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "image/png"
+      ],
+      "text_plain": "<Figure size 1600x1000 with 4 Axes>",
+      "image_png_present": true
+    }
+  ]
 }

@@ -1,352 +1,210 @@
 {
   "cell_index": 3,
   "cell_id": "acb5dfba",
-  "execution_count": 4,
+  "execution_count": null,
   "source": "# ---- preflight ----\n# ~1-2 min sanity check before the long runs. catches setup/integration bugs\n# (transformers version mismatches, gpu oom, broken merge math) early so you\n# dont find out 30 min into the rank-10 baseline. all 4 paths should pass.\nimport tempfile, itertools\nimport gc\n\nclass _SmallLoader:\n    def __init__(self, loader, n):\n        self.loader = loader\n        self.n = n\n    def __iter__(self):\n        return iter(itertools.islice(self.loader, self.n))\n    def __len__(self):\n        return self.n\n\n_tmp = tempfile.mkdtemp(prefix=\"preflight_\")\n_small_train = _SmallLoader(train_loader, 8)\n_small_val = _SmallLoader(val_loader, 4)\n_tiny_test = [{\"meaning_representation\": \"name[Foo], food[Italian]\",\n               \"human_reference\": \"Foo serves Italian food.\"}]\n\n# 1) inject_lora baseline path (rank-10 cell uses this)\nprint(\"preflight 1/4: rank-10 inject_lora path...\")\n_m = GPT2LMHeadModel.from_pretrained(\"gpt2\")\n_m.resize_token_embeddings(len(tokenizer))\ninject_lora(_m, rank=10, alpha=10)\n_r = run_experiment(\n    model=_m, train_loader=_small_train, val_loader=_small_val,\n    test_loader=_small_train, test_dataset_hf=_tiny_test, tokenizer=tokenizer,\n    device=device, num_epochs=1, learning_rate=2e-4, weight_decay=0.01,\n    warmup_steps=2, experiment_name=\"preflight_r10\",\n    checkpoint_dir=_tmp, results_dir=_tmp,\n)\ndel _m, _r; gc.collect()\nif torch.cuda.is_available(): torch.cuda.empty_cache()\n\n# 2-4) sequential paths, one for each alpha_old\nfor _i, _alpha_old in enumerate([0.0, 0.1, 1.0], start=2):\n    print(f\"preflight {_i}/4: sequential alpha_old={_alpha_old}...\")\n    _m = GPT2LMHeadModel.from_pretrained(\"gpt2\")\n    _m.resize_token_embeddings(len(tokenizer))\n    inject_sequential_lora(_m, rank=2, alpha=2)\n    _trig = FixedStepTrigger(total_steps=8, num_stages=2)\n    _r = run_sequential_experiment(\n        model=_m, train_loader=_small_train, val_loader=_small_val,\n        test_loader=test_loader, test_dataset_hf=_tiny_test, tokenizer=tokenizer,\n        device=device, trigger=_trig, per_stage_rank=2, per_stage_alpha=2,\n        alpha_old=_alpha_old, num_epochs=1, learning_rate=2e-4, weight_decay=0.01,\n        warmup_steps=2, eval_every=4,\n        experiment_name=f\"preflight_seq_alpha{_alpha_old}\",\n        checkpoint_dir=_tmp, results_dir=_tmp,\n    )\n    assert _r[\"final_total_rank\"] == 4, f\"alpha={_alpha_old} should grow 2->4\"\n    assert len(_r[\"stage_events\"]) == 1, f\"alpha={_alpha_old} should have 1 stage event\"\n    del _m, _r; gc.collect()\n    if torch.cuda.is_available(): torch.cuda.empty_cache()\n\nprint(\"\\npreflight: all 4 paths OK, ready for long run\")",
-  "stdout_text": "preflight 1/4: rank-10 inject_lora path...\nWarning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.\nWARNING:huggingface_hub.utils._http:Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.\nLoading weights:   0%|          | 0/148 [00:00<?, ?it/s]GPT2LMHeadModel LOAD REPORT from: gpt2\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...11}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\nThe new embeddings will be initialized from a multivariate normal distribution that has old embeddings' mean and covariance. As described in this article: https://nlp.stanford.edu/~johnhew/vocab-expansion.html. To disable this, use `mean_resizing=False`\n[preflight_r10] Trainable params: 368,640 / 124,809,984 (0.2954%)\nTraining 1/1:   0%|          | 0/8 [00:00<?, ?it/s]`loss_type=None` was set in the config but it is unrecognized. Using the default loss: `ForCausalLMLoss`.\n    Training 1/1: batch 1/8 | avg loss 5.1354\n    Training 1/1: batch 8/8 | avg loss 5.1463\nValidation 1/1:   0%|          | 0/4 [00:00<?, ?it/s]    Validation 1/1: batch 1/4 | avg loss 5.0558\n    Validation 1/1: batch 4/4 | avg loss 5.0337\n  Epoch 1/1 | Train Loss: 5.1463 | Val Loss: 5.0337 | Time: 1.0s\n  Generating on test set...\nGenerating:   0%|          | 0/1 [00:00<?, ?it/s]    Generating: 1/1\n  BLEU: 0.0000 | ROUGE-L: 0.2500\n/usr/local/lib/python3.12/dist-packages/nltk/translate/bleu_score.py:577: UserWarning: \nThe hypothesis contains 0 counts of 2-gram overlaps.\nTherefore the BLEU score evaluates to 0, independently of\nhow many N-gram overlaps of lower order it contains.\nConsider using lower n-gram order or use SmoothingFunction()\n  warnings.warn(_msg)\n/usr/local/lib/python3.12/dist-packages/nltk/translate/bleu_score.py:577: UserWarning: \nThe hypothesis contains 0 counts of 3-gram overlaps.\nTherefore the BLEU score evaluates to 0, independently of\nhow many N-gram overlaps of lower order it contains.\nConsider using lower n-gram order or use SmoothingFunction()\n  warnings.warn(_msg)\n/usr/local/lib/python3.12/dist-packages/nltk/translate/bleu_score.py:577: UserWarning: \nThe hypothesis contains 0 counts of 4-gram overlaps.\nTherefore the BLEU score evaluates to 0, independently of\nhow many N-gram overlaps of lower order it contains.\nConsider using lower n-gram order or use SmoothingFunction()\n  warnings.warn(_msg)\npreflight 2/4: sequential alpha_old=0.0...\nLoading weights:   0%|          | 0/148 [00:00<?, ?it/s]GPT2LMHeadModel LOAD REPORT from: gpt2\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...11}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n[preflight_seq_alpha0.0] starting, alpha_old=0.0, per_stage_rank=2, total_planned_steps=8\n    [preflight_seq_alpha0.0] epoch 1/1 batch 1/8 | step 1 | avg train loss 5.0975\n    >>> stage transition at step 4 (fixed_step), total_rank now 4\n    [preflight_seq_alpha0.0] epoch 1/1 batch 8/8 | step 8 | avg train loss 5.1902\n  Epoch 1/1 | step 8 | avg train loss 5.1902 | val loss 5.0662 | total_rank=4 | time 0.9s\n  Generating on test set (post-merge, total rank = 4)...\nGenerating:   0%|          | 0/1 [00:00<?, ?it/s]    Generating: 1/1\n  BLEU: 0.0000 | ROUGE-L: 0.2500\npreflight 3/4: sequential alpha_old=0.1...\nLoading weights:   0%|          | 0/148 [00:00<?, ?it/s]GPT2LMHeadModel LOAD REPORT from: gpt2\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...11}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n[preflight_seq_alpha0.1] starting, alpha_old=0.1, per_stage_rank=2, total_planned_steps=8\n    [preflight_seq_alpha0.1] epoch 1/1 batch 1/8 | step 1 | avg train loss 5.0975\n    >>> stage transition at step 4 (fixed_step), total_rank now 4\n    [preflight_seq_alpha0.1] epoch 1/1 batch 8/8 | step 8 | avg train loss 5.1905\n  Epoch 1/1 | step 8 | avg train loss 5.1905 | val loss 5.0659 | total_rank=4 | time 0.9s\n  Generating on test set (post-merge, total rank = 4)...\nGenerating:   0%|          | 0/1 [00:00<?, ?it/s]    Generating: 1/1\n  BLEU: 0.0000 | ROUGE-L: 0.2500\npreflight 4/4: sequential alpha_old=1.0...\nLoading weights:   0%|          | 0/148 [00:00<?, ?it/s]GPT2LMHeadModel LOAD REPORT from: gpt2\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...11}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n[preflight_seq_alpha1.0] starting, alpha_old=1.0, per_stage_rank=2, total_planned_steps=8\n    [preflight_seq_alpha1.0] epoch 1/1 batch 1/8 | step 1 | avg train loss 5.0975\n    >>> stage transition at step 4 (fixed_step), total_rank now 4\n    [preflight_seq_alpha1.0] epoch 1/1 batch 8/8 | step 8 | avg train loss 5.1892\n  Epoch 1/1 | step 8 | avg train loss 5.1892 | val loss 5.0607 | total_rank=4 | time 0.9s\n  Generating on test set (post-merge, total rank = 4)...\nGenerating:   0%|          | 0/1 [00:00<?, ?it/s]    Generating: 1/1\n  BLEU: 0.0000 | ROUGE-L: 0.2500\n\npreflight: all 4 paths OK, ready for long run\n",
-  "outputs_raw": [
+  "stdout_text": "preflight 1/4: rank-10 inject_lora path...\nGPT2LMHeadModel LOAD REPORT from: gpt2\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...11}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\nThe new embeddings will be initialized from a multivariate normal distribution that has old embeddings' mean and covariance. As described in this article: https://nlp.stanford.edu/~johnhew/vocab-expansion.html. To disable this, use `mean_resizing=False`\n[preflight_r10] Trainable params: 368,640 / 124,809,984 (0.2954%)\n`loss_type=None` was set in the config but it is unrecognized. Using the default loss: `ForCausalLMLoss`.\n    Training 1/1: batch 1/8 | avg loss 5.2127\n    Training 1/1: batch 8/8 | avg loss 5.2466\n    Validation 1/1: batch 1/4 | avg loss 5.0530\n    Validation 1/1: batch 4/4 | avg loss 5.0312\n  Epoch 1/1 | Train Loss: 5.2466 | Val Loss: 5.0312 | Time: 1.3s\n  Generating on test set...\n    Generating: 1/1\n/usr/local/lib/python3.12/dist-packages/nltk/translate/bleu_score.py:577: UserWarning: \nThe hypothesis contains 0 counts of 2-gram overlaps.\nTherefore the BLEU score evaluates to 0, independently of\nhow many N-gram overlaps of lower order it contains.\nConsider using lower n-gram order or use SmoothingFunction()\n  warnings.warn(_msg)\n/usr/local/lib/python3.12/dist-packages/nltk/translate/bleu_score.py:577: UserWarning: \nThe hypothesis contains 0 counts of 3-gram overlaps.\nTherefore the BLEU score evaluates to 0, independently of\nhow many N-gram overlaps of lower order it contains.\nConsider using lower n-gram order or use SmoothingFunction()\n  warnings.warn(_msg)\n/usr/local/lib/python3.12/dist-packages/nltk/translate/bleu_score.py:577: UserWarning: \nThe hypothesis contains 0 counts of 4-gram overlaps.\nTherefore the BLEU score evaluates to 0, independently of\nhow many N-gram overlaps of lower order it contains.\nConsider using lower n-gram order or use SmoothingFunction()\n  warnings.warn(_msg)\n  BLEU: 0.0000 | ROUGE-L: 0.2500\npreflight 2/4: sequential alpha_old=0.0...\nGPT2LMHeadModel LOAD REPORT from: gpt2\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...11}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n[preflight_seq_alpha0.0] starting, alpha_old=0.0, per_stage_rank=2, total_planned_steps=8\n    [preflight_seq_alpha0.0] epoch 1/1 batch 1/8 | step 1 | avg train loss 5.0975\n    >>> stage transition at step 4 (fixed_step), total_rank now 4\n    [preflight_seq_alpha0.0] epoch 1/1 batch 8/8 | step 8 | avg train loss 5.1902\n  Epoch 1/1 | step 8 | avg train loss 5.1902 | val loss 5.0665 | total_rank=4 | time 0.7s\n  Generating on test set (post-merge, total rank = 4)...\n    Generating: 1/1\n  BLEU: 0.0000 | ROUGE-L: 0.2500\npreflight 3/4: sequential alpha_old=0.1...\nGPT2LMHeadModel LOAD REPORT from: gpt2\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...11}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n[preflight_seq_alpha0.1] starting, alpha_old=0.1, per_stage_rank=2, total_planned_steps=8\n    [preflight_seq_alpha0.1] epoch 1/1 batch 1/8 | step 1 | avg train loss 5.0975\n    >>> stage transition at step 4 (fixed_step), total_rank now 4\n    [preflight_seq_alpha0.1] epoch 1/1 batch 8/8 | step 8 | avg train loss 5.1905\n  Epoch 1/1 | step 8 | avg train loss 5.1905 | val loss 5.0659 | total_rank=4 | time 0.7s\n  Generating on test set (post-merge, total rank = 4)...\n    Generating: 1/1\n  BLEU: 0.0000 | ROUGE-L: 0.2500\npreflight 4/4: sequential alpha_old=1.0...\nGPT2LMHeadModel LOAD REPORT from: gpt2\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...11}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n[preflight_seq_alpha1.0] starting, alpha_old=1.0, per_stage_rank=2, total_planned_steps=8\n    [preflight_seq_alpha1.0] epoch 1/1 batch 1/8 | step 1 | avg train loss 5.0975\n    >>> stage transition at step 4 (fixed_step), total_rank now 4\n    [preflight_seq_alpha1.0] epoch 1/1 batch 8/8 | step 8 | avg train loss 5.1892\n  Epoch 1/1 | step 8 | avg train loss 5.1892 | val loss 5.0607 | total_rank=4 | time 0.7s\n  Generating on test set (post-merge, total rank = 4)...\n    Generating: 1/1\n  BLEU: 0.0000 | ROUGE-L: 0.2500\n\npreflight: all 4 paths OK, ready for long run\n",
+  "display_outputs": 13,
+  "errors": [],
+  "outputs": [
     {
-      "name": "stdout",
       "output_type": "stream",
-      "text": [
-        "preflight 1/4: rank-10 inject_lora path...\n"
-      ]
+      "name": "stdout",
+      "text": "preflight 1/4: rank-10 inject_lora path...\n"
     },
     {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "application/vnd.jupyter.widget-view+json"
+      ],
+      "text_plain": "config.json:   0%|          | 0.00/665 [00:00<?, ?B/s]"
+    },
+    {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "application/vnd.jupyter.widget-view+json"
+      ],
+      "text_plain": "model.safetensors:   0%|          | 0.00/548M [00:00<?, ?B/s]"
+    },
+    {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "application/vnd.jupyter.widget-view+json"
+      ],
+      "text_plain": "Loading weights:   0%|          | 0/148 [00:00<?, ?it/s]"
+    },
+    {
+      "output_type": "stream",
       "name": "stderr",
+      "text": "GPT2LMHeadModel LOAD REPORT from: gpt2\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...11}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n"
+    },
+    {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "application/vnd.jupyter.widget-view+json"
+      ],
+      "text_plain": "generation_config.json:   0%|          | 0.00/124 [00:00<?, ?B/s]"
+    },
+    {
       "output_type": "stream",
-      "text": [
-        "Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.\n",
-        "WARNING:huggingface_hub.utils._http:Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.\n"
-      ]
-    },
-    {
-      "data": {
-        "application/vnd.jupyter.widget-view+json": {
-          "model_id": "abf4e71681b74bb990378272bb1582f9",
-          "version_major": 2,
-          "version_minor": 0
-        },
-        "text/plain": [
-          "Loading weights:   0%|          | 0/148 [00:00<?, ?it/s]"
-        ]
-      },
-      "metadata": {},
-      "output_type": "display_data"
-    },
-    {
       "name": "stderr",
-      "output_type": "stream",
-      "text": [
-        "GPT2LMHeadModel LOAD REPORT from: gpt2\n",
-        "Key                  | Status     |  | \n",
-        "---------------------+------------+--+-\n",
-        "h.{0...11}.attn.bias | UNEXPECTED |  | \n",
-        "\n",
-        "Notes:\n",
-        "- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n",
-        "The new embeddings will be initialized from a multivariate normal distribution that has old embeddings' mean and covariance. As described in this article: https://nlp.stanford.edu/~johnhew/vocab-expansion.html. To disable this, use `mean_resizing=False`\n"
-      ]
+      "text": "The new embeddings will be initialized from a multivariate normal distribution that has old embeddings' mean and covariance. As described in this article: https://nlp.stanford.edu/~johnhew/vocab-expansion.html. To disable this, use `mean_resizing=False`\n"
     },
     {
+      "output_type": "stream",
       "name": "stdout",
+      "text": "[preflight_r10] Trainable params: 368,640 / 124,809,984 (0.2954%)\n"
+    },
+    {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "application/vnd.jupyter.widget-view+json"
+      ],
+      "text_plain": "Training 1/1:   0%|          | 0/8 [00:00<?, ?it/s]"
+    },
+    {
       "output_type": "stream",
-      "text": [
-        "[preflight_r10] Trainable params: 368,640 / 124,809,984 (0.2954%)\n"
-      ]
-    },
-    {
-      "data": {
-        "application/vnd.jupyter.widget-view+json": {
-          "model_id": "c970c2412dc4484980cb62e73a990e22",
-          "version_major": 2,
-          "version_minor": 0
-        },
-        "text/plain": [
-          "Training 1/1:   0%|          | 0/8 [00:00<?, ?it/s]"
-        ]
-      },
-      "metadata": {},
-      "output_type": "display_data"
-    },
-    {
       "name": "stderr",
-      "output_type": "stream",
-      "text": [
-        "`loss_type=None` was set in the config but it is unrecognized. Using the default loss: `ForCausalLMLoss`.\n"
-      ]
+      "text": "`loss_type=None` was set in the config but it is unrecognized. Using the default loss: `ForCausalLMLoss`.\n"
     },
     {
+      "output_type": "stream",
       "name": "stdout",
+      "text": "    Training 1/1: batch 1/8 | avg loss 5.2127\n    Training 1/1: batch 8/8 | avg loss 5.2466\n"
+    },
+    {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "application/vnd.jupyter.widget-view+json"
+      ],
+      "text_plain": "Validation 1/1:   0%|          | 0/4 [00:00<?, ?it/s]"
+    },
+    {
       "output_type": "stream",
-      "text": [
-        "    Training 1/1: batch 1/8 | avg loss 5.1354\n",
-        "    Training 1/1: batch 8/8 | avg loss 5.1463\n"
-      ]
-    },
-    {
-      "data": {
-        "application/vnd.jupyter.widget-view+json": {
-          "model_id": "e9ff16ce2062478e8bfac6d420f619ec",
-          "version_major": 2,
-          "version_minor": 0
-        },
-        "text/plain": [
-          "Validation 1/1:   0%|          | 0/4 [00:00<?, ?it/s]"
-        ]
-      },
-      "metadata": {},
-      "output_type": "display_data"
-    },
-    {
       "name": "stdout",
+      "text": "    Validation 1/1: batch 1/4 | avg loss 5.0530\n    Validation 1/1: batch 4/4 | avg loss 5.0312\n  Epoch 1/1 | Train Loss: 5.2466 | Val Loss: 5.0312 | Time: 1.3s\n  Generating on test set...\n"
+    },
+    {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "application/vnd.jupyter.widget-view+json"
+      ],
+      "text_plain": "Generating:   0%|          | 0/1 [00:00<?, ?it/s]"
+    },
+    {
       "output_type": "stream",
-      "text": [
-        "    Validation 1/1: batch 1/4 | avg loss 5.0558\n",
-        "    Validation 1/1: batch 4/4 | avg loss 5.0337\n",
-        "  Epoch 1/1 | Train Loss: 5.1463 | Val Loss: 5.0337 | Time: 1.0s\n",
-        "  Generating on test set...\n"
-      ]
-    },
-    {
-      "data": {
-        "application/vnd.jupyter.widget-view+json": {
-          "model_id": "d7ef7d506fc54605bb8fdb325b44dc2b",
-          "version_major": 2,
-          "version_minor": 0
-        },
-        "text/plain": [
-          "Generating:   0%|          | 0/1 [00:00<?, ?it/s]"
-        ]
-      },
-      "metadata": {},
-      "output_type": "display_data"
-    },
-    {
       "name": "stdout",
-      "output_type": "stream",
-      "text": [
-        "    Generating: 1/1\n",
-        "  BLEU: 0.0000 | ROUGE-L: 0.2500\n"
-      ]
+      "text": "    Generating: 1/1\n"
     },
     {
+      "output_type": "stream",
       "name": "stderr",
-      "output_type": "stream",
-      "text": [
-        "/usr/local/lib/python3.12/dist-packages/nltk/translate/bleu_score.py:577: UserWarning: \n",
-        "The hypothesis contains 0 counts of 2-gram overlaps.\n",
-        "Therefore the BLEU score evaluates to 0, independently of\n",
-        "how many N-gram overlaps of lower order it contains.\n",
-        "Consider using lower n-gram order or use SmoothingFunction()\n",
-        "  warnings.warn(_msg)\n",
-        "/usr/local/lib/python3.12/dist-packages/nltk/translate/bleu_score.py:577: UserWarning: \n",
-        "The hypothesis contains 0 counts of 3-gram overlaps.\n",
-        "Therefore the BLEU score evaluates to 0, independently of\n",
-        "how many N-gram overlaps of lower order it contains.\n",
-        "Consider using lower n-gram order or use SmoothingFunction()\n",
-        "  warnings.warn(_msg)\n",
-        "/usr/local/lib/python3.12/dist-packages/nltk/translate/bleu_score.py:577: UserWarning: \n",
-        "The hypothesis contains 0 counts of 4-gram overlaps.\n",
-        "Therefore the BLEU score evaluates to 0, independently of\n",
-        "how many N-gram overlaps of lower order it contains.\n",
-        "Consider using lower n-gram order or use SmoothingFunction()\n",
-        "  warnings.warn(_msg)\n"
-      ]
+      "text": "/usr/local/lib/python3.12/dist-packages/nltk/translate/bleu_score.py:577: UserWarning: \nThe hypothesis contains 0 counts of 2-gram overlaps.\nTherefore the BLEU score evaluates to 0, independently of\nhow many N-gram overlaps of lower order it contains.\nConsider using lower n-gram order or use SmoothingFunction()\n  warnings.warn(_msg)\n/usr/local/lib/python3.12/dist-packages/nltk/translate/bleu_score.py:577: UserWarning: \nThe hypothesis contains 0 counts of 3-gram overlaps.\nTherefore the BLEU score evaluates to 0, independently of\nhow many N-gram overlaps of lower order it contains.\nConsider using lower n-gram order or use SmoothingFunction()\n  warnings.warn(_msg)\n/usr/local/lib/python3.12/dist-packages/nltk/translate/bleu_score.py:577: UserWarning: \nThe hypothesis contains 0 counts of 4-gram overlaps.\nTherefore the BLEU score evaluates to 0, independently of\nhow many N-gram overlaps of lower order it contains.\nConsider using lower n-gram order or use SmoothingFunction()\n  warnings.warn(_msg)\n"
     },
     {
+      "output_type": "stream",
       "name": "stdout",
+      "text": "  BLEU: 0.0000 | ROUGE-L: 0.2500\npreflight 2/4: sequential alpha_old=0.0...\n"
+    },
+    {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "application/vnd.jupyter.widget-view+json"
+      ],
+      "text_plain": "Loading weights:   0%|          | 0/148 [00:00<?, ?it/s]"
+    },
+    {
       "output_type": "stream",
-      "text": [
-        "preflight 2/4: sequential alpha_old=0.0...\n"
-      ]
-    },
-    {
-      "data": {
-        "application/vnd.jupyter.widget-view+json": {
-          "model_id": "b59392cc929444ada2fc69ef515edfad",
-          "version_major": 2,
-          "version_minor": 0
-        },
-        "text/plain": [
-          "Loading weights:   0%|          | 0/148 [00:00<?, ?it/s]"
-        ]
-      },
-      "metadata": {},
-      "output_type": "display_data"
-    },
-    {
       "name": "stderr",
-      "output_type": "stream",
-      "text": [
-        "GPT2LMHeadModel LOAD REPORT from: gpt2\n",
-        "Key                  | Status     |  | \n",
-        "---------------------+------------+--+-\n",
-        "h.{0...11}.attn.bias | UNEXPECTED |  | \n",
-        "\n",
-        "Notes:\n",
-        "- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n"
-      ]
+      "text": "GPT2LMHeadModel LOAD REPORT from: gpt2\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...11}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n"
     },
     {
+      "output_type": "stream",
       "name": "stdout",
+      "text": "[preflight_seq_alpha0.0] starting, alpha_old=0.0, per_stage_rank=2, total_planned_steps=8\n    [preflight_seq_alpha0.0] epoch 1/1 batch 1/8 | step 1 | avg train loss 5.0975\n    >>> stage transition at step 4 (fixed_step), total_rank now 4\n    [preflight_seq_alpha0.0] epoch 1/1 batch 8/8 | step 8 | avg train loss 5.1902\n  Epoch 1/1 | step 8 | avg train loss 5.1902 | val loss 5.0665 | total_rank=4 | time 0.7s\n  Generating on test set (post-merge, total rank = 4)...\n"
+    },
+    {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "application/vnd.jupyter.widget-view+json"
+      ],
+      "text_plain": "Generating:   0%|          | 0/1 [00:00<?, ?it/s]"
+    },
+    {
       "output_type": "stream",
-      "text": [
-        "[preflight_seq_alpha0.0] starting, alpha_old=0.0, per_stage_rank=2, total_planned_steps=8\n",
-        "    [preflight_seq_alpha0.0] epoch 1/1 batch 1/8 | step 1 | avg train loss 5.0975\n",
-        "    >>> stage transition at step 4 (fixed_step), total_rank now 4\n",
-        "    [preflight_seq_alpha0.0] epoch 1/1 batch 8/8 | step 8 | avg train loss 5.1902\n",
-        "  Epoch 1/1 | step 8 | avg train loss 5.1902 | val loss 5.0662 | total_rank=4 | time 0.9s\n",
-        "  Generating on test set (post-merge, total rank = 4)...\n"
-      ]
-    },
-    {
-      "data": {
-        "application/vnd.jupyter.widget-view+json": {
-          "model_id": "e0230eab2dcd4510889dcf29a2aa14f6",
-          "version_major": 2,
-          "version_minor": 0
-        },
-        "text/plain": [
-          "Generating:   0%|          | 0/1 [00:00<?, ?it/s]"
-        ]
-      },
-      "metadata": {},
-      "output_type": "display_data"
-    },
-    {
       "name": "stdout",
+      "text": "    Generating: 1/1\n  BLEU: 0.0000 | ROUGE-L: 0.2500\npreflight 3/4: sequential alpha_old=0.1...\n"
+    },
+    {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "application/vnd.jupyter.widget-view+json"
+      ],
+      "text_plain": "Loading weights:   0%|          | 0/148 [00:00<?, ?it/s]"
+    },
+    {
       "output_type": "stream",
-      "text": [
-        "    Generating: 1/1\n",
-        "  BLEU: 0.0000 | ROUGE-L: 0.2500\n",
-        "preflight 3/4: sequential alpha_old=0.1...\n"
-      ]
-    },
-    {
-      "data": {
-        "application/vnd.jupyter.widget-view+json": {
-          "model_id": "b8d8d64b53c448dcbe28bb04e6d74c64",
-          "version_major": 2,
-          "version_minor": 0
-        },
-        "text/plain": [
-          "Loading weights:   0%|          | 0/148 [00:00<?, ?it/s]"
-        ]
-      },
-      "metadata": {},
-      "output_type": "display_data"
-    },
-    {
       "name": "stderr",
-      "output_type": "stream",
-      "text": [
-        "GPT2LMHeadModel LOAD REPORT from: gpt2\n",
-        "Key                  | Status     |  | \n",
-        "---------------------+------------+--+-\n",
-        "h.{0...11}.attn.bias | UNEXPECTED |  | \n",
-        "\n",
-        "Notes:\n",
-        "- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n"
-      ]
+      "text": "GPT2LMHeadModel LOAD REPORT from: gpt2\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...11}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n"
     },
     {
+      "output_type": "stream",
       "name": "stdout",
+      "text": "[preflight_seq_alpha0.1] starting, alpha_old=0.1, per_stage_rank=2, total_planned_steps=8\n    [preflight_seq_alpha0.1] epoch 1/1 batch 1/8 | step 1 | avg train loss 5.0975\n    >>> stage transition at step 4 (fixed_step), total_rank now 4\n    [preflight_seq_alpha0.1] epoch 1/1 batch 8/8 | step 8 | avg train loss 5.1905\n  Epoch 1/1 | step 8 | avg train loss 5.1905 | val loss 5.0659 | total_rank=4 | time 0.7s\n  Generating on test set (post-merge, total rank = 4)...\n"
+    },
+    {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "application/vnd.jupyter.widget-view+json"
+      ],
+      "text_plain": "Generating:   0%|          | 0/1 [00:00<?, ?it/s]"
+    },
+    {
       "output_type": "stream",
-      "text": [
-        "[preflight_seq_alpha0.1] starting, alpha_old=0.1, per_stage_rank=2, total_planned_steps=8\n",
-        "    [preflight_seq_alpha0.1] epoch 1/1 batch 1/8 | step 1 | avg train loss 5.0975\n",
-        "    >>> stage transition at step 4 (fixed_step), total_rank now 4\n",
-        "    [preflight_seq_alpha0.1] epoch 1/1 batch 8/8 | step 8 | avg train loss 5.1905\n",
-        "  Epoch 1/1 | step 8 | avg train loss 5.1905 | val loss 5.0659 | total_rank=4 | time 0.9s\n",
-        "  Generating on test set (post-merge, total rank = 4)...\n"
-      ]
-    },
-    {
-      "data": {
-        "application/vnd.jupyter.widget-view+json": {
-          "model_id": "4db2466d4e31431bb47bfa0ccd75eb0c",
-          "version_major": 2,
-          "version_minor": 0
-        },
-        "text/plain": [
-          "Generating:   0%|          | 0/1 [00:00<?, ?it/s]"
-        ]
-      },
-      "metadata": {},
-      "output_type": "display_data"
-    },
-    {
       "name": "stdout",
+      "text": "    Generating: 1/1\n  BLEU: 0.0000 | ROUGE-L: 0.2500\npreflight 4/4: sequential alpha_old=1.0...\n"
+    },
+    {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "application/vnd.jupyter.widget-view+json"
+      ],
+      "text_plain": "Loading weights:   0%|          | 0/148 [00:00<?, ?it/s]"
+    },
+    {
       "output_type": "stream",
-      "text": [
-        "    Generating: 1/1\n",
-        "  BLEU: 0.0000 | ROUGE-L: 0.2500\n",
-        "preflight 4/4: sequential alpha_old=1.0...\n"
-      ]
-    },
-    {
-      "data": {
-        "application/vnd.jupyter.widget-view+json": {
-          "model_id": "280c547fdc0145dc8c93e56bde8f285f",
-          "version_major": 2,
-          "version_minor": 0
-        },
-        "text/plain": [
-          "Loading weights:   0%|          | 0/148 [00:00<?, ?it/s]"
-        ]
-      },
-      "metadata": {},
-      "output_type": "display_data"
-    },
-    {
       "name": "stderr",
-      "output_type": "stream",
-      "text": [
-        "GPT2LMHeadModel LOAD REPORT from: gpt2\n",
-        "Key                  | Status     |  | \n",
-        "---------------------+------------+--+-\n",
-        "h.{0...11}.attn.bias | UNEXPECTED |  | \n",
-        "\n",
-        "Notes:\n",
-        "- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n"
-      ]
+      "text": "GPT2LMHeadModel LOAD REPORT from: gpt2\nKey                  | Status     |  | \n---------------------+------------+--+-\nh.{0...11}.attn.bias | UNEXPECTED |  | \n\nNotes:\n- UNEXPECTED\t:can be ignored when loading from different task/architecture; not ok if you expect identical arch.\n"
     },
     {
+      "output_type": "stream",
       "name": "stdout",
+      "text": "[preflight_seq_alpha1.0] starting, alpha_old=1.0, per_stage_rank=2, total_planned_steps=8\n    [preflight_seq_alpha1.0] epoch 1/1 batch 1/8 | step 1 | avg train loss 5.0975\n    >>> stage transition at step 4 (fixed_step), total_rank now 4\n    [preflight_seq_alpha1.0] epoch 1/1 batch 8/8 | step 8 | avg train loss 5.1892\n  Epoch 1/1 | step 8 | avg train loss 5.1892 | val loss 5.0607 | total_rank=4 | time 0.7s\n  Generating on test set (post-merge, total rank = 4)...\n"
+    },
+    {
+      "output_type": "display_data",
+      "data_keys": [
+        "text/plain",
+        "application/vnd.jupyter.widget-view+json"
+      ],
+      "text_plain": "Generating:   0%|          | 0/1 [00:00<?, ?it/s]"
+    },
+    {
       "output_type": "stream",
-      "text": [
-        "[preflight_seq_alpha1.0] starting, alpha_old=1.0, per_stage_rank=2, total_planned_steps=8\n",
-        "    [preflight_seq_alpha1.0] epoch 1/1 batch 1/8 | step 1 | avg train loss 5.0975\n",
-        "    >>> stage transition at step 4 (fixed_step), total_rank now 4\n",
-        "    [preflight_seq_alpha1.0] epoch 1/1 batch 8/8 | step 8 | avg train loss 5.1892\n",
-        "  Epoch 1/1 | step 8 | avg train loss 5.1892 | val loss 5.0607 | total_rank=4 | time 0.9s\n",
-        "  Generating on test set (post-merge, total rank = 4)...\n"
-      ]
-    },
-    {
-      "data": {
-        "application/vnd.jupyter.widget-view+json": {
-          "model_id": "164c17c64a1e44108403c1c86f5b4fe5",
-          "version_major": 2,
-          "version_minor": 0
-        },
-        "text/plain": [
-          "Generating:   0%|          | 0/1 [00:00<?, ?it/s]"
-        ]
-      },
-      "metadata": {},
-      "output_type": "display_data"
-    },
-    {
       "name": "stdout",
-      "output_type": "stream",
-      "text": [
-        "    Generating: 1/1\n",
-        "  BLEU: 0.0000 | ROUGE-L: 0.2500\n",
-        "\n",
-        "preflight: all 4 paths OK, ready for long run\n"
-      ]
+      "text": "    Generating: 1/1\n  BLEU: 0.0000 | ROUGE-L: 0.2500\n\npreflight: all 4 paths OK, ready for long run\n"
     }
   ]
 }

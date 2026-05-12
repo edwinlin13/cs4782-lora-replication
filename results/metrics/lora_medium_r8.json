@@ -1,0 +1,25 @@
+{
+  "experiment_name": "lora_medium_r8",
+  "model": "gpt2-medium",
+  "status": "complete",
+  "config": {
+    "rank": 8,
+    "alpha": 8,
+    "num_epochs": 5,
+    "learning_rate": 0.0002,
+    "weight_decay": 0.01,
+    "warmup_steps": 500,
+    "seed": 42
+  },
+  "params": {
+    "trainable": 786432,
+    "total": 355611648,
+    "percentage": 0.2211
+  },
+  "final_total_rank": 8,
+  "test_metrics": {
+    "bleu": 0.6458,
+    "rouge_l": 0.6867
+  },
+  "extraction_note": "Summary metrics extracted from the completed Colab notebook in code/sequential_experiment.ipynb."
+}
