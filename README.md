@@ -38,7 +38,8 @@ Clone the repository and install dependencies:
 git clone https://github.com/edwinlin13/cs4782-lora-replication.git
 cd cs4782-lora-replication
 python -m venv .venv
-.venv\Scripts\activate
+source .venv/bin/activate  # macOS/Linux
+# .venv\Scripts\activate   # Windows
 pip install -r requirements.txt
 ```
 
