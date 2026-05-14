@@ -141,35 +141,25 @@ def compute_metrics(generated_results, dataset_hf):
     nltk.download("punkt", quiet=True)
     nltk.download("punkt_tab", quiet=True)
 
+    scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
     all_references = []
     all_hypotheses = []
-
-    for mr, generated in generated_results:
-        refs = mr_to_refs.get(mr, [])
-        if not refs:
-            continue
-        tokenized_refs = [nltk.word_tokenize(r.lower()) for r in refs]
-        tokenized_hyp = nltk.word_tokenize(generated.lower())
-        all_references.append(tokenized_refs)
-        all_hypotheses.append(tokenized_hyp)
-
-    # corpus bleu handles multiple references per hypothesis
-    bleu = nltk.translate.bleu_score.corpus_bleu(all_references, all_hypotheses)
-
-    # rouge-l: take the best score across references for each hypothesis
-    scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
     rouge_l_scores = []
 
     for mr, generated in generated_results:
         refs = mr_to_refs.get(mr, [])
         if not refs:
             continue
-        best_score = max(
+        all_references.append([nltk.word_tokenize(r.lower()) for r in refs])
+        all_hypotheses.append(nltk.word_tokenize(generated.lower()))
+        # rouge-l: take the best score across references
+        rouge_l_scores.append(max(
             scorer.score(ref, generated)["rougeL"].fmeasure
             for ref in refs
-        )
-        rouge_l_scores.append(best_score)
+        ))
 
+    # corpus bleu handles multiple references per hypothesis
+    bleu = nltk.translate.bleu_score.corpus_bleu(all_references, all_hypotheses)
     avg_rouge_l = sum(rouge_l_scores) / len(rouge_l_scores) if rouge_l_scores else 0.0
 
     return {"bleu": bleu, "rouge_l": avg_rouge_l}
